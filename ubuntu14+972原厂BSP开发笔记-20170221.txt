@@ -1,0 +1,925 @@
+
+准备工作：
+1.从System Settings->Software&Updates->Ubuntu Software修改更新源,改为sohu（这个下载速度快），更新一下安全更新。
+
+
+2.Ubuntu 在文件夹内右键打开终端：
+	sudo apt-get install nautilus-open-terminal
+
+
+
+3.ubuntu14.04-64上安装samba，实现windows共享文件方法:
+	1).安装samba程序
+	sudo apt-get install samba
+
+	2).修改配置文件: sudo gedit /etc/samba/smb.conf
+	找到[homes]和[netlogon]两个地方，按如下内容修改：
+	[homes]
+	comment = Home Directories
+	browseable = yes
+	read only = no
+	create mask = 0775
+	directory mask = 0775
+	valid users = %S
+	[netlogon]
+	comment = Network Logon Service
+	path = /home/samba/netlogon
+	guest ok = yes
+	read only = no
+
+	3).创建samba帐户
+             sudo adduser blue  ---userdel -r blue
+             smbpasswd -a blue
+	sudo smbpasswd -a wangbin
+             smbpasswd -x username删除
+
+	4).重启samba服务器
+	sudo service smbd restart
+
+	
+	5).添加网络磁盘\\192.168.0.103\wangbin,输入用户名和密码后，即可访问home目录。
+
+
+
+安装调试原厂的BSP：
+
+1.解压nuc970bsp-release-20151111，找到nuc970bsp-release-20151111/BSP/nuc970bsp,运行脚本sudo ./install.sh进行安装
+  可参照《NUC970 Linux BSP 使用手冊.pdf》的2.5章节 “2.5  BSP 安裝步驟”
+  如果用的是64位ubuntu的话，需要安装32位的库文件：sudo apt-get install lib32z1 lib32ncurses5 lib32bz2-1.0
+  还需要安装的库文件：sudo apt-get install ncurses-dev
+  
+  
+2.编译Uboot：
+	1)在文件/home/wangbin/work/uboot/include/configs/nuc970_evb.h中配置uboot的Flash选项（可以减小uboot大小）
+	支持SPI Flash，不支持NAND Flash：
+	#define CONFIG_SYS_USE_SPIFLASH
+	//#define CONFIG_SYS_USE_NANDFLASH      不用nand flash
+	//#define CONFIG_ENV_IS_IN_NAND         环境变量不放在nand flash
+	#define CONFIG_ENV_IS_IN_SPI_FLASH
+	
+	注释掉多余flash芯片型号，只保留用的到的型号：
+	//#define CONFIG_SPI_FLASH_MACRONIX		1
+	#define CONFIG_SPI_FLASH_WINBOND		1
+	//#define CONFIG_SPI_FLASH_EON			1
+	
+	修改环境变量文件的存储位置和大小：
+	#define CONFIG_ENV_OFFSET       0x40000
+	#define CONFIG_ENV_SIZE         0x10000
+	#define CONFIG_ENV_SECT_SIZE    0x10000
+	
+	取消对MMC的支持if 1改为if 0
+	
+
+	2)原厂BSP+SPI版本：
+	make O=./build/ distclean
+	make O=./build/ nuc970_nonand_config
+	make O=./build/ all
+	
+	3)原厂BSP+SPI版本(arm-none-linux-gnueabi-gcc编译)：
+	make CROSS_COMPILE=arm-none-linux-gnueabi- O=./build/ distclean
+	make CROSS_COMPILE=arm-none-linux-gnueabi- O=./build/ nuc970_nonand_config
+	make CROSS_COMPILE=arm-none-linux-gnueabi- O=./build/ all
+	
+安装
+sudo apt-get install gcc-arm-linux-gnueabihf
+sudo apt-get install g++-arm-linux-gnueabihf 
+卸载
+sudo apt-get remove gcc-arm-linux-gnueabihf 
+sudo apt-get remove g++-arm-linux-gnueabihf 
+	
+
+3.编译内核
+
+	1)配置内核
+	恢复到972默认配置：make nuc972_defconfig
+	打开内核配置界面：make menuconfig
+	make ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabi- menuconfig
+	可参考用户手册，做基本设置
+	
+	//支持模块挂载和卸载
+	[*] Enable loadable module support --->
+		[*] Module unloading
+	
+	//开机命令设置（不使用RAM文件系统）
+	General setup --->
+		[ ] Initial RAM filesystem and RAM disk (initramfs/initrd) support
+	
+	Boot options  --->
+		(mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=squashfs root=/dev/mtdblock6) Default kernel command string 
+		Kernel command line type (Use bootloader arguments if available) --->
+	
+	//网络功能设置
+	[*] Networking support ---> 
+			Networking options ---> 
+				<*> Packet socket
+				<*>   Packet: sockets monitoring interface 
+				<*>Unix domain sockets
+				<*>   UNIX: socket monitoring interface
+				[*] TCP/IP networking
+				[*]   IP: advanced router
+				[*]IP:kernel level autoconfiguration
+				[*]  IP:DHCP support
+				[*]Network packet filtering framework(Netfilter) -->
+			
+	//无线设置
+	[*] Networking support --->
+		[*]Wireless --->
+			<*>cfg80211 - wireless configuration API 
+			[*]cfg80211 wireless extensions compatibility 
+			
+	Device Drivers  --->
+		[*]Network device support  --->
+			[*]Network core driver support
+			[*]   Wireless LAN  --->
+				<*>IEEE 802.11 for Host AP (Prism2/2.5/3 and WEP/TKIP/CCMP)
+	
+	//网口设置（评估板上用的ICPlus，以后会用National Semiconductor）
+	Device Drivers  --->
+	[*]Network device support  --->
+	    <*>  Dummy net driver support
+            [*]  Ethernet driver support  --->
+		<*>  Nuvoton NUC970 Ethernet MAC 0
+	    -*-  PHY Device support and infrastructure  --->
+		<*>  	Drivers for ICPlus PHYs
+	
+	//GPIO设置
+	Device Drivers  ---> 
+		-*- GPIO Support  --->
+		    [*]   /sys/class/gpio/... (sysfs interface) 
+		    <*>   NUC970 GPIO support
+		
+	//串口设置
+	Device Drivers  ---> 
+		Character devices  ---> 
+			Serial drivers  ---> 
+			[*]  NUC970 serial support
+			[*]    	NUC970 UART2 support
+					NUC970 UART2 pin selection (Tx:PF11, Rx:PF12, CTS:PF13, RTS:PF14)  --->
+			   
+	//SPI接口和SPI Flash设置,增加对W25Q128 Flash芯片支持，(借用ST公司M25P80的驱动支持)
+	Device Drivers  --->
+		[*] SPI support  ---> 
+		       <*>   Nuvoton NUC970 Series SPI Port 0 
+			          NUC970 SPI0 pin selection (Normal mode)  ---> 
+		       < >   Nuvoton NUC970 Series SPI Port 1
+			          NUC970 SPI1 pin selection (Port B – Normal mode)  --->
+	
+		<*> Memory Technology Device (MTD) support  --->
+			<*> Caching block device access to MTD devices
+			Self-contained MTD device drivers  --->
+				<*> Support most SPI Flash chips (AT26DF, M25P, W25X, ...)
+			
+			RAM/ROM/Flash chip drivers  --->
+				<*> Detect flash chips by Common Flash Interface (CFI) probe
+				<*> Support for ST (Advanced Architecture) flash chips
+	
+	
+	增加对SquashFS和JFFS2格式的文件系统的支持
+	File Systems -->
+		[*] Miscellaneous filesystems -->
+			<*>Journalling Flash File System v2 (JFFS2) support
+				(0)JFFS2 debugging verbosity (0 = quiet, 2 = noisy)
+				[*]JFFS2 write-buffering support
+				
+			<*> SquashFS 4.0 - Squashed file system support -->(Yes)
+				[*] 	Include support for ZLIB compressed file systems -->(Yes)
+				[*] 	Use 4K device block size? -->(Yes)
+	
+	//增加对3G+4G模块的支持
+	Device Drivers  --->			
+	     [*] USB support ---> 
+		     <*> USB Serial Converter support --->   
+			 [*] USB Serial Console device support   
+			 [*] USB Generic Serial Driver   
+			 <*> USB driver for GSM and CDMA modems
+		     <*>USB Modem (CDC ACM) support
+		
+	     [*]Network device support  --->
+			USB Network Adapters  --->
+			<*> Multi-purpose USB Networking Framework
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+			-*-   CDC Ethernet support (smart devices such as cable modems)
+			<*>   CDC NCM support
+			<*>   Host for RNDIS and ActiveSync devices
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+			
+	支持PPP拨号
+	Device Drivers->
+              ->Network Device Support->
+                  <*> PPP (point-to-point protocol) support
+                  [*]   PPP multilink support
+                  <*> PPP support for async serial ports
+                  <*> PPP support for sync tty ports
+                  <*> SLIP (serial line) support
+                  [*]   CSLIP compressed headers
+	   
+	   
+	2)增加对3G4G模块的支持，驱动过滤
+	打开文件gedit ./drivers/usb/serial/option.c，增加USB枚举类型：
+	static const struct usb_device_id option_ids[] = {
+	{ USB_DEVICE(0x19d2, 0x0536) },
+	{ USB_DEVICE(0x19d2, 0x0199) },
+
+	打开文件gedit ./drivers/usb/serial/usb-serial.c，增加驱动过滤，防止被其他程序加载
+	在type = search_serial_device(interface);前面增加如下代码：
+	if ( (le16_to_cpu(dev->descriptor.idVendor) == 0x19d2) &&
+		( (le16_to_cpu(dev->descriptor.idProduct) == 0x0536) || 
+		  (le16_to_cpu(dev->descriptor.idProduct) == 0x0199) )
+		)
+	{
+		 if ((1 == interface->cur_altsetting->desc.bInterfaceNumber) ||
+		 ( 0 == interface->cur_altsetting->desc.bInterfaceNumber))
+		 {
+			mutex_unlock(&table_lock); 
+			return -ENODEV; 
+		 } 
+	}
+
+	内核配置好后，请备份.config文件。
+	
+	3)修改内核代码
+
+	1>调整分区，Flash空间分配：(jffs2)
+	uboot：	0x00000~0x03FFFF(0x40000=256KB)//软件上烧录地址是E00000
+	env:	0x40000~0x04FFFF(0x10000=64KB)
+	kernel:	0x50000~0x5FFFFF(0x5B0000=5824KB)
+	rootfs: 0x600000~0x0FFFFFF(0xA00000=10MB)
+
+	打开文件gedit ./arch/arm/mach-nuc970/dev.c，替换如下定义代码：
+	static struct mtd_partition nuc970_spi0_flash_partitions[] = {
+	{
+		.name = "uboot",
+		.size = 0x40000,
+		.offset = 0,
+	},
+	{
+		.name = "env",
+		.size = 0x10000,
+		.offset = 0x40000,
+	},
+	{
+		.name = "kernel",
+		.size = 0x5B0000,
+		.offset = 0x50000,
+	},
+	{
+		.name = "rootfs",
+		.size = 0xA00000,
+		.offset = 0x600000,
+	},
+	
+	生成文件系统：
+	
+	mkfs.jffs2 -s 256 -e 0x10000 -p 0xA00000 -d ./rootfs -o ./rootfs.jffs2
+	
+	对应的env参数
+	bootcmd=sf probe 0 18000000\; sf read 0x7fc0 0x50000 0x4B0000\; bootm 0x7fc0
+	bootargs=mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=jffs2 root=/dev/mtdblock3
+	
+	
+	2>调整分区，Flash空间分配：(ubifs)
+	uboot：	0x00000~0x03FFFF(0x40000=256KB)//软件上烧录地址是E00000
+	env:	0x40000~0x04FFFF(0x10000=64KB)
+	kernel:	0x50000~0x5FFFFF(0x5B0000=5824KB)
+	rootfs: 0x600000~0x0A7FFFF(0xA00000=10MB)
+
+	
+	对应的env参数
+	bootcmd=sf probe 0 18000000\; sf read 0x7fc0 0x50000 0x4B0000\; bootm 0x7fc0
+	bootargs=mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=ubifs root=/dev/mtdblock3
+	
+	打开文件gedit ./arch/arm/mach-nuc970/dev.c，替换如下定义代码：
+	static struct mtd_partition nuc970_spi0_flash_partitions[] = {
+	{
+			.name = "uboot",
+			.size = 0x40000,
+			.offset = 0,
+	},
+	{
+			.name = "env",
+			.size = 0x10000,
+			.offset = 0x40000,
+	},
+	{
+			.name = "kernel",
+			.size = 0x5B0000,
+			.offset = 0x50000,
+	},
+	{
+			.name = "rootfs",
+			.size = 0xA00000,
+			.offset = 0x600000,
+	},
+	
+	mkfs.ubifs -r rootfs -m 256 -e 65024 -c 160 -o ubifs.img
+	ubinize -o rootfs.ubi -m 256 -p 64KiB -s 128 ./ubinize.cfg
+
+	[ubifs]
+	mode=ubi
+	image=ubifs.img
+	vol_id=0
+	vol_name=rootfs
+	vol_size=9MiB
+	vol_type=dynamic
+	vol_flags=autoresize
+	vol_alignment=1
+	
+	
+	3>调整分区，Flash空间分配：(squash)
+	uboot：	0x00000~0x03FFFF(0x40000=256KB)//软件上烧录地址是E00000
+	env:	0x40000~0x04FFFF(0x10000=64KB)
+	kernel:	0x50000~0x5FFFFF(0x5B0000=5824KB)
+	rootfs: 0x600000~0x0A7FFFF(0x480000=4608KB)
+	firm:	0x0A80000~0x0FFFFFF(0x580000=5632KB)
+	
+	对应的env参数
+	bootcmd=sf probe 0 18000000\; sf read 0x7fc0 0x50000 0x5B0000\; bootm 0x7fc0
+	bootargs=mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=squashfs root=/dev/mtdblock3
+	
+	打开文件gedit ./arch/arm/mach-nuc970/dev.c，替换如下定义代码：
+	static struct mtd_partition nuc970_spi0_flash_partitions[] = {
+	{
+			.name = "uboot",
+			.size = 0x40000,
+			.offset = 0,
+	},
+	{
+			.name = "env",
+			.size = 0x10000,
+			.offset = 0x40000,
+	},
+	{
+			.name = "kernel",
+			.size = 0x5B0000,
+			.offset = 0x50000,
+	},
+	{
+			.name = "rootfs",
+			.size = 0x480000,
+			.offset = 0x600000,
+	},
+	{
+			.name = "firm",
+			.size = 0x580000,
+			.offset = 0x0A80000,
+	},
+	
+	
+	
+	4)开始编译：
+	make
+	
+	5)拷贝成bin（安米或原厂此方法一样）：
+	arm-linux-objcopy -O binary vmlinux vmlinux.bin
+
+	6)生成ubi格式镜像文件(mkimage工具在uboot/build/tool/，拷贝到/usr/bin下)：
+	mkimage -A arm -O linux -T kernel -a 0x7fc0 -e 0x8000 -d vmlinux.bin vmlinux.ub
+	
+	
+	
+	
+	
+4.生成squashfs格式的基础文件系统
+	1)安装mksquashfs工具：
+	sudo apt-get install squashfs-tools
+	
+	2)生成命令(制定块大小)：
+	mksquashfs ./rootfs_squash ./rootfs.squash -b 4096
+	mksquashfs ./rootfs_ubi ./rootfs_ubi.squash -b 4096
+
+
+5.生成jffs2格式的文件系统
+	1)解压zlib-1.2.3.tar.gz和mtd-snapshot-20050519.tar.bz2
+	
+	2)配置并编译zlib
+		./configure --shared --prefix=/usr/
+		
+	3)编译和安装zlib库
+		make
+		sudo make install
+	
+	4)进入mtd/util下，编译和安装
+		make
+		make install
+		
+	5)检查是否安装成功
+		which mkfs.jffs2
+		/usr/sbin/mkfs.jffs2
+	
+	6)生成文件系统镜像
+	mkfs.jffs2 -s 0x100 -e 0x8000 -p 0x300000 -d ./rootfs -o ./rootfs.jffs2
+	
+6.挂载文件系统：
+	mount -t jffs2 /dev/mtdblock4 /mnt/firm
+	mount -t jffs2 /dev/mtdblock4 /mnt/firm
+	httpd -h /mnt/firm/web
+
+	
+	
+7.生成UBI文件系统
+	W25Q128FV:
+		page size = 256(bytes)
+		erase block size = 64(KiB) = 256(pages)
+		total size = 16(MiB) = 65536(pages)
+		
+	-m 256
+	-e (256-2) pages = 65024
+	-c 10MiB/64KiB = 160
+		
+		
+	mkfs.ubifs -r rootfs -m 256 -e 65024 -c 160 -o ubifs.img
+	ubinize -o ubi.img -m 256 -p 64KiB -s 160 ./ubinize.cfg
+	
+	
+	mkfs.ubifs -r rootfs -m 256 -e 65024 -c 128 -o ubifs.img
+	ubinize -o ubi.img -m 256 -p 64KiB -s 128 ./ubinize.cfg
+	
+	mount -t ubifs /dev/mtdblock5 /mnt/firm
+	
+	
+8.安装tftp
+	1)sudo apt-get install tftpd tftp openbsd-inetd
+	
+	2)sudo gedit /etc/inetd.conf
+	tftp dgram udp wait nobody /usr/sbin/tcpd /usr/sbin/in.tftpd /srv/tftp  (/srv/tftp 为默认tftp目录)
+	改为
+	tftp dgram udp wait nobody /usr/sbin/tcpd /usr/sbin/in.tftpd /home/wangbin/tftproot
+	
+	3)sudo mkdir /tftproot
+	4)sudo chmod 777 /tftproot
+	5)sudo /etc/init.d/openbsd-inetd restart
+	6)查看69端口是否有打开 ：netstat -an | more | grep udp
+	udp 0 0 0.0.0.0:69 0.0.0.0:*
+	7)本机测试：
+      a. 在/tftproot 下新建文件1.txt   
+      b. 在其他目录下测试：
+		tftp 127.0.0.1
+		tftp> get 1.txt
+		Received 12 bytes in 0.0 seconds
+		tftp> quit
+
+		
+	
+9.使用Nu-Writer V1.0从flash中读取固件的方法
+	1 Block = 64KB
+	Block索引从0开始
+	A80000(起始地址) = 168(Block索引)
+	580000(字节数)   = 88(block个数)
+	
+
+10.tar指令用法	
+	压缩
+	tar –cvf jpg.tar *.jpg //将目录里所有jpg文件打包成tar.jpg
+	tar –czf jpg.tar.gz *.jpg //将目录里所有jpg文件打包成jpg.tar后，并且将其用gzip压缩，生成一个gzip压缩过的包，命名为jpg.tar.gz
+	tar –cjf jpg.tar.bz2 *.jpg //将目录里所有jpg文件打包成jpg.tar后，并且将其用bzip2压缩，生成一个bzip2压缩过的包，命名为jpg.tar.bz2
+	tar –cZf jpg.tar.Z *.jpg   //将目录里所有jpg文件打包成jpg.tar后，并且将其用compress压缩，生成一个umcompress压缩过的包，命名为jpg.tar.Z
+
+	解压
+	tar –xvf file.tar //解压 tar包
+	tar -zxvf file.tar.gz //解压tar.gz
+	tar -jxvf file.tar.bz2   //解压 tar.bz2tar –xZvf file.tar.Z //解压tar.Z
+
+
+11.busybox自带的httpd的用法
+	1)httpd.conf的内容
+	I:index.html
+	E404:/path/e404.html
+	A:*
+	2).cgi文件必须放在网页根目录（/mnt/firm/www）的/cgi-bin/下才可以。
+	3)httpd启动命令：httpd -h /home/root/G781/www -c /home/root/G781/www/config/httpd.conf
+	
+	ping www.baidu.com -n -c 1
+
+
+12. pppd用法
+	pppd connect 'chat -v "" "AT" "" "ATDT#777 CONNECT"' user card password card /dev/ttyUSB0 115200 nodetach crtscts debug usepeerdns defaultroute
+
+
+
+13.给uboot添加flash型号
+	1)在文件uboot/include/configs/nuc970_evb.h中
+	增加 #define CONFIG_SPI_FLASH_GIGADEVICE	1
+	注释 //#define CONFIG_SPI_FLASH_WINBOND		1
+	
+	2)在uboot/drivers/mtd/spi/spi_flash.c添加要支持flash信息
+	flashes[] = {
+		#ifdef CONFIG_SPI_FLASH_GIGADEVICE
+		{ 0, 0xc8, spi_flash_probe_gigadevice, },
+		#endif
+	
+	3)在uboot/drivers/mtd/spi/增加gigadevice.c(参考winbond.c)
+	4)在uboot/drivers/mtd/spi/Makefile里增加编译项：COBJS-$(CONFIG_SPI_FLASH_GIGADEVICE)	+= gigadevice.o
+
+	
+14.给kernel添加flash型号
+	1)在gedit ./drivers/mtd/devices/m25p80.c中添加，注意：0xc84018
+	/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
+	{ "gd25q128", INFO(0xc84018, 0, 64 * 1024, 256, 0 | M25P80_DUAL_READ | M25P80_QUAD_READ | M25P80_QUAD_WRITE) },
+	
+	2)在gedit ./arch/arm/mach-nuc970/dev.c修改
+	static struct flash_platform_data nuc970_spi0_flash_data = {
+        .name = "m25p80",
+        .parts =  nuc970_spi0_flash_partitions,
+        .nr_parts = ARRAY_SIZE(nuc970_spi0_flash_partitions),
+        .type = "gd25q128",
+	};
+
+
+15.设置IP和掩码
+	ifconfig eth0 192.168.0.138 netmask 255.255.255.0
+	ifconfig eth1 192.168.1.1 netmask 255.255.255.0
+	设置网关
+	route add default gw 192.168.1.1
+	udhcpc -i eth2 -q -t 3
+	udhcpc -i eth0 -q -t 3
+	udhcpd /mnt/firm/net/udhcpd.conf
+	udhcpd /etc/udhcpd.conf
+
+
+16. iptables-V1.4.21编译与相关配置
+	./configure --prefix=/home/wangbin/work/nuc970_bsp/iptables-1.4.21/install --host=arm-linux --enable-static --disable-shared --disable-ipv6
+	make KERNEL_DIR=/home/wangbin/work/nuc970_bsp/linux-3.10.x
+	make NO.SHARED_LIBS=1
+	make install
+	
+	//开启LAN到外网的地址转换功能，否则无法上外网
+	iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -j MASQUERADE
+	
+
+17. 终止进程
+	ps | grep G781 | grep -v grep | awk '{print $1}'
+	ps | grep /mnt/firm/app/G781 | grep -v grep | awk '{print $1}'
+	killall /usr/sbin/G781
+
+
+
+18. 操作GPIO
+echo 0 > /sys/class/gpio/gpio256/value
+
+
+19. 网桥设置(br0是网桥名举例)
+	1).查看 brctl show
+	
+	2).删除 brctl delbr br0
+	
+	3).增加 brctl addbr br0
+	
+	4).把eth0和eth1都加进网桥br0
+	brctl addif br0 eth0
+	brctl addif br0 eth1
+	
+	5）.把eth0和eth1都整成混杂模式
+	ifconfig eth0 0.0.0.0
+	ifconfig eth1 0.0.0.0
+	
+	6).配置网桥IP并启动
+	ifconfig br0 up
+
+
+20.busybox编译方法
+	make menuconfig
+	make
+	make install
+	arm-none-linux-gnueabi-strip 
+
+
+
+
+
+	X)修改内核代码 - ramfs + jffs2
+
+	1>调整分区，Flash空间分配：(ramfs + jffs2)
+	uboot：	0x00000~0x03FFFF(0x40000=256KB)//软件上烧录地址是E00000
+	env:	0x40000~0x04FFFF(0x10000=64KB)
+	kernel:	0x50000~0x5FFFFF(0x5B0000=5.9MB)
+	rootfs: 0x600000~0x09FFFFF(0x400000=4MB)
+	userfs: 0xA00000~0x0DFFFFF(0x400000=4MB) // 预留了4MB的jffs2空间，jffs2之后还剩余2MB
+	xxxx:	预留：2MB
+	
+	打开文件gedit ./arch/arm/mach-nuc970/dev.c，替换如下定义代码：
+	static struct mtd_partition nuc970_spi0_flash_partitions[] = {
+		{
+			.name = "uboot",
+			.size = 0x40000,
+			.offset = 0,
+		},
+		{	
+			.name = "env",
+			.size = 0x10000,
+			.offset = 0x40000,
+		},	
+        {
+			.name = "factory",
+			.size = 0x10000,
+			.offset = 0x050000,
+        },
+		
+		{
+			.name = "kernel",
+			.size = 0x9a0000,
+			.offset = 0x60000, 
+        },
+        {
+			.name = "userfs",
+			.size = 0x400000,
+			.offset = 0xA00000,
+        },
+	};
+	
+	生成文件系统：
+	
+	mkfs.jffs2 -s 256 -e 0x10000 -p 0xA00000 -d N668/userfs -o userfs.jffs2
+	
+	对应的env参数
+	bootcmd=sf probe 0 18000000\; sf read 0x7fc0 0x50000 0x9B0000\; bootm 0x7fc0
+	bootargs=mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=ramfs root=/dev/mtdblock3
+
+	
+	
+	x) httpd.conf 配置文件。
+	其中/ : : 的格式表示为某个路径访问，设置用户名密码认证
+	A 打头表示允许访问
+	D打头表示不允许访问
+	
+	
+	A:*  
+	E404:/path/e404.html
+	I:indexen.html
+	*.htm:/mnt/user/G781/www/ssi-bin/httpd.ssi
+	*.html:/mnt/user/G781/www/ssi-bin/httpd.ssi
+	/:admin:admin
+	/cgi-bin:admin:admin
+	/www:admin:admin
+
+	
+dropbear 安装
+	依赖：zlib-1.2.3  & dropbear-0.52
+	解压zlib-1.2.3.tar.gz，创建/usr/local/zlib目录；
+	./configure --prefix =/usr/local/zlib
+	修改Makefile
+	CC=arm-linux-gcc
+	AR=arm-linux-ar rc
+	RANLIB=arm-linux-ranlib
+	交叉编译dropbear：
+	解压dropbear-0.52.tar.gz，创建/usr/local/dropbear；
+	./configure –prefix=/usr/local/dropbear –with-zlib=/usr/local/zlib/ CC=arm-linux-gcc –host=arm
+	注：这里要求使用绝对路径-如果希望放在home目录可以使用${HOME}/usr/locale/zlib与${HOME}/usr/locale/dropbear
+	 
+	make；
+	make scp；
+	make install；
+	cp scp /usr/local/dropbear/bin
+
+	将/usr/local/dropbear/bin/和/usr/local/dropbear/sbin/下的文件都复制到板上/usr/sbin目录。
+	在/usr/sbin跟/bin/下必须有scp的软件链接
+
+	mkdir /etc/dropbear
+	cd dropbear
+	dropbearkey -t rsa -f dropbear_rsa_host_key
+	dropbearkey -t dss -f dropbear_dss_host_key
+	 
+	在启动脚本/etc/init.d/rcS中增加: /usr/sbin/dropbear
+	运行dropbear -p 22
+	
+2017-02-13 	pptp vpn
+	依赖：ppp-2.4.7 & pptp-1.9.0
+	pptp编译时会有bzero报错，请在各自文件中增加宏定义消除报错。
+	分别安装到rootfs内，务必放在/usr/sbin下
+	pppd 与pptp拷贝到/usr/sbin下
+	
+	pptp链接指令，（options.pptp为ppp配置文件）
+	# pptp test.usr.cn debug user lihuibinvpn password lihuibinvpn file options.pptp 
+	
+	或者使用参数
+	#pptp connection 
+	#pptp test.usr.cn debug user lihuibinvpn password lihuibinvpn file options.pptp
+	# pptp test.usr.cn debug user lihuibinvpn password lihuibinvpn require-mppe-128 mtu 1500   lcp-echo-interval 300 &
+	
+	pptpen=`uci get -q network.pptp.enabled`
+	if [ $pptpen == "1" ]
+	then  
+		printf "trying to connect pptp server at: "
+		printf $`uci get -q network.pptp.serveraddr`$`uci get -q network.pptp.username`$`uci get -q network.pptp.password`  
+		pptp `uci get -q network.pptp.serveraddr` debug user `uci get -q network.pptp.username` password `uci get -q network.pptp.password` \
+		`uci get -q network.pptp.dataencrypt` \
+		`uci get -q network.pptp.auth` \
+		mtu `uci get -q network.pptp.mtu` \
+		lcp-echo-interval `uci get -q network.pptp.lcpecho` & 
+	fi	
+	
+	成功后会生成ppp0网卡
+	ppp0      Link encap:Point-to-Point Protocol  
+          inet addr:192.168.111.33  P-t-P:192.168.111.30  Mask:255.255.255.255
+          UP POINTOPOINT RUNNING NOARP MULTICAST  MTU:1396  Metric:1
+          RX packets:11 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:11 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:3 
+          RX bytes:258 (258.0 B)  TX bytes:258 (258.0 B)
+		  
+2017-02-13 uci
+	depends: json-c-0.11 & libubox-2014-08-04 & uci-2014-04-11.1
+	依次编译，
+	./configure --prefix=   
+	make CC=arm-linux-gcc
+	make install DESTDIR=/....
+	共享库 .so 文件必须放在/lib下
+http://blog.csdn.net/wsclinux/article/details/40426401			  
+http://blog.csdn.net/h893529689/article/details/46861201
+http://jingyan.baidu.com/article/cb5d6105faba90005d2fe07b.html
+
+2017-02-15 gre
+	kernel中开启ip_gre
+	
+	A arm板1.7，隧道ip 10.10.10.1，	A和B为局域网
+	ip tunnel add gre1 mode gre remote 192.168.1.230 local 192.168.1.7 ttl 255
+	ip link set gre1 up
+	ip addr add 10.10.10.1 peer 10.10.10.2 dev gre1
+	
+gre1      Link encap:UNSPEC  HWaddr C0-A8-01-07-00-00-00-00-00-00-00-00-00-00-00-00  
+          inet addr:10.10.10.1  P-t-P:10.10.10.2  Mask:255.255.255.255
+          UP POINTOPOINT RUNNING NOARP  MTU:1476  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+	
+	另一端设置如下，
+	B 虚拟机1.230，隧道ip 10.10.10.2
+	ip tunnel add gre1 mode gre remote 192.168.1.7 local 192.168.1.230 ttl 255
+	ip link set gre1 up
+	ip addr add 10.10.10.2 peer 10.10.10.1 dev gre1
+gre1      Link encap:UNSPEC  HWaddr C0-A8-01-E6-00-00-00-00-00-00-00-00-00-00-00-00  
+          inet addr:10.10.10.2  P-t-P:10.10.10.1  Mask:255.255.255.255
+          inet6 addr: fe80::5efe:c0a8:1e6/64 Scope:Link
+          UP POINTOPOINT RUNNING NOARP  MTU:1476  Metric:1
+          RX packets:3 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:6 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:252 (252.0 B)  TX bytes:444 (444.0 B)
+
+	成功后，在A上ping B的隧道IP10.10.10.2，ssh链接测试也可以。
+	
+udhcpd的使用
+	udhcpd -S -f /mnt/user/udhcpd.conf
+	其中，leases文件在/var/lib/misc/udhcpd.leases 
+	leases文件举例：
+	00 00 00 00 
+	58 AD 58 B8 00 01 51 80  //？？
+	C0 A8 01 64     //IP地址
+	D8 B0 4C 00 C0 8B  //MAC地址
+	55 53 52 2D 54 43 50 32 33 32 2D 34 31 30 53  //主机名
+	00 00 00 00 00 00 00 	
+	
+
+USR-N668的串口映射
+A
+	UART1 - PH4 PH5 PH6 PH7
+	UART2 - PF11 PF12 PF13 PF14
+	UART3 - PE12 13 14 15
+	UART4 - PH8 PH9 10 11
+	UART5 - PB0 1 2 3
+	UART6 - PG11 PG12 PG13 PG14
+	UART7 - PI0 1 2 3
+	UART8 - PI12 13 14 15
+	LED-WORK 	- PG4
+	LED_NROMAL 	- PB15
+	LED_NC		- PB14
+	realod 		- PD7
+	
+	WDT			- PB4
+		
+编译iptables
+--disable-ipv6
+./configure --prefix=/home/lihuibin/nuc970bsp/rootfs/ --host=arm-linux --with-ksource=/home/lihuibin/nuc970bsp/rootfs --disable-ipv6 --disable-devel	
+./configure --prefix=/home/lihuibin/nuc970bsp/rootfs-bkp/ --host=arm-linux --with-ksource=/home/lihuibin/nuc970bsp/rootfs-bkp --disable-ipv6	
+	sudo -s 
+	export PATH=$PATH:/usr/local/arm_linux_4.3/usr/bin/
+	make && make install
+	make
+	make install
+
+编译openssl
+	./config no-asm shared --prefix=/home/share-lihuibin/test_forcompiletool/openssl-1.1.0e/openssl-install --cross-compile-prefix=arm-linux- no-threads
+	make 
+	make install
+	1 对称加密（密码要相同）
+	示例：
+	加密：]# openssl enc -e -des3 -a -salt -in fstab -out jiami
+	解密：]# openssl enc -d -des3 -a -salt -in fstab -out jiami	
+	2 单向加密 dgst
+	openssl dgst -md5 fstab
+	3 生成密码
+	openssl passwd -l -in fstab -salt 12345678
+	4 生成随机数
+	openssl rand -base64 10 -out aa
+	5 生成密钥对
+	openssl genrsa -out 123.txt 4096
+	6 创建CA和申请证书
+	1制作证书前，先查看配置文件/ssl/openssl.cnf
+	2 创建自签证书：创建为CA提供所需的目录及文件
+	3 指明证书的开始编号
+	4 生成私钥，私钥文件名与配置文件的设置相匹配
+	5 生成自签证书
+	6 颁发证书：使用证书的主机上生成证书请求，
+		主机上生成私钥
+		生成证书签署请求
+		请求以可靠方式发送给CA主机
+		CA服务器拿到请求后颁发证书
+	7 吊销证书
+	
+	编译net-snmp 
+	 
+./configure --host=arm-linux --target=arm-linux --build=i686-linux  --with-cc=arm-linux-gcc --with-ar=arm-linux-ar --prefix=/home/share-lihuibin/test_forcompiletool/net-snmp-5.7.3/install --disable-shared --disable-scripts --with-endianness=little -enable-mini-agent --disable-ipv6 --disable-manuals  --disable-ucd-snmp-compatibility --enable-as-needed
+
+	arm板去请求moxa5610的ip信息
+	~ # ./snmpwalk -c public -v 1 -m ALL 192.168.1.254 .1.3.6.1.2.1.4.20
+	iso.3.6.1.2.1.4.20.1.1.192.168.1.254 = IpAddress: 192.168.1.254
+	iso.3.6.1.2.1.4.20.1.2.192.168.1.254 = INTEGER: 1
+	iso.3.6.1.2.1.4.20.1.3.192.168.1.254 = IpAddress: 255.255.255.0
+	iso.3.6.1.2.1.4.20.1.4.192.168.1.254 = INTEGER: 0
+	iso.3.6.1.2.1.4.20.1.5.192.168.1.254 = INTEGER: 65535	
+	~ # ./snmpwalk -c public -v 1 -m share/snmp/mibs 192.168.1.254 1.3.6.1.2.1.1.3
+	Failed to parse MIB file share/snmp/mibs
+	iso.3.6.1.2.1.1.3.0 = Timeticks: (1012768) 2:48:47.68
+	
+环境变量env_spi.txt有用
+	
+双网口桥接
+	echo "1" > /proc/sys/net/ipv4/ip_forward #打开IP转发，这是共享上网的必要条件
+	ifconfig eth0 0.0.0.0 up
+	ifconfig eth1 0.0.0.0 up
+	brctl addbr br0 
+	brctl addif br0 eth0 
+	brctl addif br0 eth1 #将eth0 eth1加到网桥中去
+	ifconfig br0 192.168.1.7 netmask 255.255.255.0 broadcast 192.168.1.255 up #给网桥分配IP地址，如果不做NAT，也不需要远程访问网桥的话，可以不设IP地址，但必须启用网桥（ifconfig br0 up）
+	route add default gw 192.168.1.254 #如果网桥不需要访问其他机器的话，可以不添加网关。	
+	
+	禁止访问网络
+	iptables -I FORWARD -p all -j REJECT
+	
+ubuntu 14的设置
+	永久修改静态ip
+	sudo vim /etc/network/interfaces
+	auto eth0
+	iface eth0 inet static
+	address 192.168.4.7
+	gateway 192.168.4.1
+	netmask 255.255.255.0
+	
+	
+	lihuibin@ubuntu-lihuibin:~/nuc970bsp/linux-3.10.x$ echo $PATH
+/usr/local/arm_linux_4.3/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/home/lihuibin/arm-2010.09/bin
+	
+	
+	
+	时区问题
+	TZ=CST-8 date
+	TZ=CST-8 date -Iseconds | sed 's/T/ /g'
+	OK，我全明白了。 如果是在中国，那么就应该将变量设置成："CST-8"，试试看：
+	成功！
+	现在有两种方案：
+	直接到时区信息写到 /etc/TZ 文件
+	在系统启动时，设置环境变量 TZ
+	
+	*
+	发现/dev/mtd4 没有内容
+	/etc/init.d/rcS: line 38: /mnt/user/ipconfig: not found
+	if [ -f "/root/dataflow_log" ]
+	then 
+		echo xxxx
+	fi
+	
+	
+	
+Linux下修改MAC地址
+方法一：
+1.关闭网卡设备
+ifconfig eth0 down
+2.修改MAC地址
+ifconfig eth0 hw ether MAC地址
+3.重启网卡
+ifconfig eth0 up
+方法二：
+以上方法一修改后Linux重启后MAC又恢复为原来的，为了下次启动时修改后的MAC仍有效，我们可以修改文件file:/etc/rc.d /rc.sysinit(RedFlag Linux为这个文件，其他版本的linux应该不同)的内容，在该文件末尾加以下内容：
+ifconfig eth0 down
+ifconfig eth0 hw ether MAC地址
+ifconfig eth0 up
+方法三：
+很简单的，只是在./etc/sysconfig/network-scripts/ifcfg-eth0中加入下面一句话：
+MACADDR=00:AA:BB:CC:DD:EE
+方法四：
+Linux 下如何更改网卡MAC地址
+
+	
+	
+	ssh登陆后，环境变量错误的问题
+	跟/etc/profile有关，在其中增加export PATH=$PATH:/usr/sbin，每次ssh后，都会把/usr/sbin加入环境变量
+~ # cat /etc/profile 
+export PATH=$PATH:/usr/sbin
+~ # echo $PATH
+/usr/bin:/bin:/usr/sbin
+
+
+	
+	
+	

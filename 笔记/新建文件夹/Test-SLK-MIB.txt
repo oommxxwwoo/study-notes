@@ -1,0 +1,34 @@
+-- Test-SLK-MIB.txt
+     Test-SLK-MIB DEFINITIONS ::= BEGIN
+ 
+         IMPORTS
+             OBJECT-GROUP, MODULE-COMPLIANCE, NOTIFICATION-GROUP
+                 FROM SNMPv2-CONF
+             enterprises, Integer32, Unsigned32, OBJECT-TYPE, MODULE-IDENTITY,
+             NOTIFICATION-TYPE
+                 FROM SNMPv2-SMI
+             DisplayString
+                 FROM SNMPv2-TC;
+ 
+         Test MODULE-IDENTITY
+             LAST-UPDATED "201601221450Z"       --必须以Z结尾
+             ORGANIZATION
+                 ""
+             CONTACT-INFO
+                 ""
+             DESCRIPTION
+                 "Video's Server MIB."
+             ::= { enterprises 745352 }
+ 
+         Time OBJECT IDENTIFIER ::= { Test 1 }
+ 
+ 
+         GetTime OBJECT-TYPE
+             SYNTAX DisplayString 
+             MAX-ACCESS read-only
+             STATUS current
+             DESCRIPTION
+                 "Example : 2016/1/22"
+            ::= { Time 1 }
+    END
+-- Test-SLK-MIB.txt

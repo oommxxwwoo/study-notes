@@ -1,0 +1,302 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>默认页</title>
+<link type="text/css" rel="stylesheet" href="style/style.css" />
+<script type="text/javascript" src="js/jquery.js"></script>
+<script type="text/javascript" src="js/xhr.js"></script>
+<script type="text/javascript" src="js/usr.js"></script>
+</head> 
+
+<body>
+
+<div class="main clearfix" id="main">
+    <script>
+	$(function(){
+		$(".nav .nav_div").click(function(){
+			$(this).toggleClass("add_show").siblings(".nav .nav_div").removeClass("add_show");
+			$(this).next(".dropdown-menu").slideToggle(300).siblings(".dropdown-menu").slideUp(300)
+		})
+	});
+	</script> 
+    <div class="main_right" id="main_right">
+	  <div class="usr_content">
+         <script type="text/javascript">//<![CDATA[
+			
+			function progressbar(v, m)
+			{
+				var vn = parseInt(v) || 0;
+				var mn = parseInt(m) || 100;   
+				var pc = Math.floor((100 / mn) * vn);
+				// 200px, so pc * 2
+				return  '<div style="width:200px; position:relative; border:1px solid #999999">' +
+						'<div style="background-color:#CCCCCC; width:' + pc*2 + 'px; height:15px">' +
+							'<div style="position:absolute; left:0; top:0; text-align:center; width:100%%; color:#000000">' +
+								'<small>' + v + ' / ' + m + ' (' + pc + '%)</small>' +  
+							'</div>' +
+						'</div>' +
+					'</div>';
+			}
+		
+			var wifidevs = null;
+			var arptable = null;   
+		
+			XHR.poll(5, '/cgi-bin/httpd.cgi', { src_file: 'status.json' }, 
+				function(x, info)
+				{	
+					var e;
+		
+					if (e = document.getElementById('local_time'))  
+						e.innerHTML = info.local_time;
+		
+					if (e = document.getElementById('up_time'))
+						e.innerHTML = info.up_time;
+		
+					if (e = document.getElementById('avg_load'))
+						e.innerHTML = info.avg_load;
+		
+		
+					if (e = document.getElementById('memtotal'))
+						e.innerHTML = progressbar(
+							(parseInt(info.memfree) + parseInt(info.membuff) + parseInt(info.memcache)) + " kB",
+							info.memtotal + " kB"  
+						);
+					if (e = document.getElementById('memfree'))
+						e.innerHTML = progressbar(
+							info.memfree + " kB", info.memtotal + " kB"
+						);
+		
+					if (e = document.getElementById('memcache'))
+						e.innerHTML = progressbar(
+							info.memcache + " kB", info.memtotal + " kB"
+						);
+		
+					if (e = document.getElementById('membuff'))
+						e.innerHTML = progressbar(
+							info.membuff + " kB", info.memtotal + " kB"
+						);
+		
+					if (e = document.getElementById('conns'))
+						e.innerHTML = progressbar(info.conncount, info.connmax);
+				
+					// for ethernet card
+					//
+					var si = document.getElementById('wan0');
+					var ss = document.getElementById('eth0');
+					var ifc = info.wan;
+					if (ifc && ifc.ifname && ifc.proto != 'none' && ifc.ifuptime)
+					{
+						var s = '<strong>类型: </strong>' + ifc.proto + '<br />' +
+							'<strong>地址: </strong>' + ifc.ipaddr + '<br />' + 
+							'<strong>子网掩码: </strong>' + ifc.netmask + '<br />' + 
+							'<strong>网关: </strong>' + ifc.gwaddr + '<br />' ;		 
+						s += '<strong>DNS: </strong>' + ifc.dns + '<br />';
+						if (ifc.ifuptime)
+						{
+							s += '<strong>连接状态: </strong>已连接' + '<br />';
+						}
+						else{
+							s += '<strong>连接状态: </strong>未连接<br />';
+						}
+						ss.innerHTML = '<small>' + s + '</small>';
+						si.innerHTML = '<img src="images/ethernet.png" />' +
+							'<br /><small><a href="' + ifc.link + '">' + ifc.ifname + '</a></small>';						
+					}
+					else
+					{
+						si.innerHTML = '<img src="images/ethernet_disabled.png" /><br /><small>?</small>';
+						ss.innerHTML = '<em>未连接</em>';
+					}	
+					
+					var si = document.getElementById('lan0');
+					var ss = document.getElementById('br0');
+					var ifc = info.lan;
+					if (ifc && ifc.ifname && ifc.proto != 'none' && ifc.ifuptime)
+					{
+						var s = '<strong>类型: </strong>' + ifc.proto + '<br />' +
+							'<strong>地址: </strong>' + ifc.ipaddr + '<br />' + 
+							'<strong>子网掩码: </strong>' + ifc.netmask + '<br />' + 
+							'<strong>网关: </strong>' + ifc.gwaddr + '<br />' ;		 
+						s += '<strong>DNS: </strong>' + ifc.dns + '<br />';
+						
+						if (ifc.ifuptime)
+						{
+							s += '<strong>连接状态: </strong>已连接' + '<br />';							
+						}
+						else{
+							s += '<strong>连接状态: </strong>未连接<br />';
+						}
+						
+						ss.innerHTML = '<small>' + s + '</small>';
+						si.innerHTML = '<img src="images/ethernet.png" />' +
+							'<br /><small><a href="' + ifc.link + '">' + ifc.ifname + '</a></small>';	
+					}
+					else
+					{
+						si.innerHTML = '<img src="images/ethernet_disabled.png" /><br /><small>?</small>';
+						ss.innerHTML = '<em>未连接</em>';
+					}
+					
+					// arp table
+					var ls = document.getElementById('lease_status_table');
+					if (ls)
+					{
+						// clear all rows 
+						while( ls.rows.length > 1 )
+							ls.rows[0].parentNode.deleteRow(1);
+		
+						for( var i = 0; i < info.arptable.length; i++ )
+						{
+							var timestr;
+		 
+							if (info.arptable[i].expires <= 0)
+								timestr = '<em>过期时间</em>';
+							else
+								timestr = String.format('%t', info.arptable[i].expires);
+		
+							var tr = ls.rows[0].parentNode.insertRow(-1);
+								tr.className = 'cbi-section-table-row cbi-rowstyle-' + ((i % 2) + 1);
+		
+							tr.insertCell(-1).innerHTML = info.arptable[i].ipaddr;
+							tr.insertCell(-1).innerHTML = info.arptable[i].macaddr;
+							tr.insertCell(-1).innerHTML = info.arptable[i].ifname;							
+							//tr.insertCell(-1).innerHTML = timestr;
+						}
+		
+						if( ls.rows.length == 1 )
+						{
+							var tr = ls.rows[0].parentNode.insertRow(-1);
+								tr.className = 'cbi-section-table-row';
+		
+							var td = tr.insertCell(-1);
+								td.colSpan = 4;
+								td.innerHTML = '<em><br />没有已分配的租约。</em>';
+						}
+					}		
+				}
+			);
+		//]]></script>
+         <h2 class="usr_h2">状态</h2> 
+         <fieldset> 
+             <legend>系统</legend>
+             <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td width="33%">主机名</td>
+                <td><!--#uci get system.@system[0].hostname -q--></td>
+              </tr>
+              <tr> 
+                <td width="33%">固件版本</td>
+                <td><!--#shellcmd:cat /etc/ver--></td>
+              </tr>
+              <tr>
+                <td width="33%">本地时间</td>
+                <td id="local_time"></td>
+              </tr> 
+              <tr>
+                <td width="33%">运行时间</td>
+                <td id="up_time"></td>
+              </tr>
+              <tr>
+                <td width="33%">平均负载</td>
+                <td id="avg_load"></td>
+              </tr>
+            </table>
+         </fieldset>
+         <fieldset>
+             <legend>内存</legend>
+             <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td width="33%">可用数</td>
+                <td id="memtotal">
+                <div style="width:200px; position:relative; border:1px solid #999999">
+                    <div style="background-color:#CCCCCC; width:68%; height:15px">
+                        <div style="position:absolute; left:0; top:0; text-align:center; width:100%; color:#000000"><small>0 kB / 61252 kB (0%)</small></div>
+                    </div>
+                </div>
+                </td>
+               </tr>
+               <tr>
+                <td width="33%">空闲数</td>
+                <td id="memfree">
+                <div style="width:200px; position:relative; border:1px solid #999999">
+                    <div style="background-color:#CCCCCC; width:36%; height:15px">
+                        <div style="position:absolute; left:0; top:0; text-align:center; width:100%; color:#000000"><small>0 kB / 61252 kB (0%)</small></div>
+                    </div>
+                </div>
+                </td>
+               </tr>
+               <tr>
+                <td width="33%">已缓存</td>
+                <td id="memcache">
+                <div style="width:200px; position:relative; border:1px solid #999999">
+                    <div style="background-color:#CCCCCC; width:24%; height:15px">
+                        <div style="position:absolute; left:0; top:0; text-align:center; width:100%; color:#000000"><small>0 kB / 61252 kB (0%)</small></div>
+                    </div>
+                </div>
+                </td>
+               </tr>
+               <tr>
+                <td width="33%">已缓冲</td>
+                <td id="membuff">
+                <div style="width:200px; position:relative; border:1px solid #999999">
+                    <div style="background-color:#CCCCCC; width:7%; height:15px">
+                        <div style="position:absolute; left:0; top:0; text-align:center; width:100%; color:#000000"><small>0 kB / 61252 kB (0%)</small></div>
+                    </div>
+                </div>
+                </td>
+               </tr>
+            </table>
+         </fieldset>
+         <fieldset>
+             <legend>网络</legend>
+             <table width="100%" border="0" cellspacing="0" cellpadding="0">
+			 
+               <tr>
+                  <td>WAN状态</td>
+                  <td>
+                     <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                           <td id="wan0" style="width:16px; text-align:center"><img src="images/ethernet_disabled.png" /><br /><small>?</small></td>
+                           <td id="eth0" style="vertical-align:middle"><em>未连接</em></td>
+                        </tr>
+                     </table>
+                  </td>
+               </tr>
+			 
+               <tr>
+                  <td>LAN状态</td>
+                  <td>
+                     <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                           <td id="lan0" style="width:16px; text-align:center"><img src="images/ethernet_disabled.png" /><br /><small>?</small></td>
+                           <td id="br0" style="vertical-align:middle"><em>未连接</em></td>
+                        </tr>
+                     </table>
+                  </td>
+               </tr>
+			   
+             </table>
+         </fieldset>
+         <fieldset>
+             <legend>ARP表</legend>
+             <table id="lease_status_table" class="section-table" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                   <th>IPv4-地址</th>
+                   <th>MAC-地址</th>
+                   <th>网卡</th>
+                </tr>
+                <tr>
+                   <td></td>
+                   <td></td>
+                   <td></td>
+                   <td></td>
+                </tr>
+             </table>
+         </fieldset>
+      </div>
+    </div>
+</div>
+
+</body>
+</html>

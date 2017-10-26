@@ -1,0 +1,210 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>IP Config</title>
+<link type="text/css" rel="stylesheet" href="style/style.css" />
+<script type="text/javascript" src="js/jquery.js"></script>
+<script type="text/javascript" src="js/usr.js"></script>
+</head>
+
+<script type="text/javascript" language="JavaScript"> 
+function init()   
+{
+	var proto = "<!--#uci get network.lan.proto -q-->";
+	var ipaddr = "<!--#uci get network.lan.ipaddr -q-->"; 
+	var netmask = "<!--#uci get network.lan.netmask -q-->";
+	var gateway = "<!--#uci get network.lan.gateway -q-->";
+	var dns = "<!--#uci get network.lan.dns -q-->";
+	var dns2 = "<!--#uci get network.lan.dns2 -q-->";
+	var dhcps_enabled = "<!--#uci get network.lan.dhcps_enabled -q-->";	
+	var dhcpipstart = "<!--#uci get network.lan.dhcpipstart -q-->";
+	var dhcpipnum = "<!--#uci get network.lan.dhcpipnum -q-->";
+	var pppuser = "<!--#uci get network.lan.pppuser -q-->";
+	var ppppwd = "<!--#uci get network.lan.ppppwd -q-->";
+	
+	var f = document.network_form;
+	f.proto.value = proto;	
+	f.ipaddr.value = ipaddr;
+	f.netmask.value = netmask;
+	f.gateway.value = gateway;
+	f.dns.value = dns;
+	f.dns2.value = dns2;	
+	f.dhcps_enabled.value = dhcps_enabled;
+	f.dhcpipstart.value = dhcpipstart;
+	f.dhcpipnum.value = dhcpipnum;
+	f.dhcpiptime.value = dhcpiptime;
+	f.pppuser.value = pppuser;
+	f.ppppwd.value = ppppwd;
+	
+	if(f.proto.value == "static")
+	{
+		document.getElementById("liipaddr").style.display = "block";
+		document.getElementById("linetmask").style.display = "block";
+		document.getElementById("ligateway").style.display = "block";
+		document.getElementById("lidns").style.display = "block";
+		document.getElementById("lidns2").style.display = "block";
+		document.getElementById("lipppuser").style.display = "none";
+		document.getElementById("lippppwd").style.display = "none";
+	}
+	else if(f.proto.value == "dhcp")
+	{
+		document.getElementById("liipaddr").style.display = "none";
+		document.getElementById("linetmask").style.display = "none";
+		document.getElementById("ligateway").style.display = "none";
+		document.getElementById("lidns").style.display = "none";
+		document.getElementById("lidns2").style.display = "none";
+		document.getElementById("lipppuser").style.display = "none";
+		document.getElementById("lippppwd").style.display = "none";
+	}
+	else if(f.proto.value == "pppoe")
+	{
+		document.getElementById("liipaddr").style.display = "none";
+		document.getElementById("linetmask").style.display = "none";
+		document.getElementById("ligateway").style.display = "none";
+		document.getElementById("lidns").style.display = "none";
+		document.getElementById("lidns2").style.display = "none";
+		document.getElementById("lipppuser").style.display = "block";
+		document.getElementById("lippppwd").style.display = "block";		
+	}
+}
+function onproto()
+{
+	var f = document.network_form;
+
+	if(f.proto.value == "static")
+	{
+		document.getElementById("liipaddr").style.display = "block";
+		document.getElementById("linetmask").style.display = "block";
+		document.getElementById("ligateway").style.display = "block";
+		document.getElementById("lidns").style.display = "block";
+		document.getElementById("lidns2").style.display = "block";
+		document.getElementById("lipppuser").style.display = "none";
+		document.getElementById("lippppwd").style.display = "none";
+	}
+	else if(f.proto.value == "dhcp")
+	{
+		document.getElementById("liipaddr").style.display = "none";
+		document.getElementById("linetmask").style.display = "none";
+		document.getElementById("ligateway").style.display = "none";
+		document.getElementById("lidns").style.display = "block";
+		document.getElementById("lidns2").style.display = "block";
+		document.getElementById("lipppuser").style.display = "none";
+		document.getElementById("lippppwd").style.display = "none";
+		
+	}
+	else if(f.proto.value == "pppoe")
+	{
+		document.getElementById("liipaddr").style.display = "none";
+		document.getElementById("linetmask").style.display = "none";
+		document.getElementById("ligateway").style.display = "none";
+		document.getElementById("lidns").style.display = "none";
+		document.getElementById("lidns2").style.display = "none";
+		document.getElementById("lipppuser").style.display = "block";
+		document.getElementById("lippppwd").style.display = "block";		
+	}
+}
+</script>
+
+<body onLoad="init()">
+
+<div class="main clearfix" id="main">
+    
+    <script>
+	$(function(){
+		$(".nav .nav_div").click(function(){
+			$(this).toggleClass("add_show").siblings(".nav .nav_div").removeClass("add_show");
+			$(this).next(".dropdown-menu").slideToggle(300).siblings(".dropdown-menu").slideUp(300)
+		})
+	});
+	</script> 
+    <div class="main_right" id="main_right">
+	  <div class="usr_content">
+         <h2 class="usr_h2">Configuration</h2>
+         <div class="usr_descr">IP Configuration</div>
+		 
+		 <form name= "network_form" method="post" action="ipconfigen.html?network"> 
+         <fieldset id="cbi-usr-usr">
+            <legend>Configuration</legend>
+            <ul class="tabmenu">
+              <li id="tab.usr.usr.test1" class="cbi-tab"><a onClick="this.blur(); return cbi_t_switch('usr.usr', 'test1')">IP Address</a></li>
+			  <!--
+              <li id="tab.usr.usr.test2" class="cbi-tab-disabled"><a onClick="this.blur(); return cbi_t_switch('usr.usr', 'test2')">高级设置</a></li>-->
+            </ul>
+            <fieldset> 
+			
+                <div id="container.usr.usr.test1">
+				 
+                 <ul class="section_node">
+                    <li>
+                        <label class="label_title">Protocol</label>
+                        <div class="div_node">
+					   <select class="select" id="proto" name="lan.proto" onclick="onproto()">
+						 <option value="static">Static Address</option>
+						 <option value="dhcp">DHCP/AutoIP</option>
+						 <option value="pppoe">PPPOE</option>
+					   </select>						
+						</div>
+                    </li>  
+                    <li id="liipaddr">
+                        <label class="label_title">IPv4 Address</label>
+                        <div class="div_node"><input class="input_text" id="ipaddr" name="lan.ipaddr" value="192.168.1.7" type="text" /></div>
+                    </li>
+                    <li id="linetmask">
+                        <label class="label_title">IPv4 Netmask</label>
+                        <div class="div_node"><input class="input_text" id="netmask" name="lan.netmask" value="255.255.255.0" type="text" /></div>
+                    </li>
+                    <li id="ligateway">
+                        <label class="label_title">IPv4 Gateway</label>
+                        <div class="div_node"><input class="input_text" id="gateway" name="lan.gateway" value="" type="text" /></div>
+                    </li>
+                    <li id="lidns">
+                        <label class="label_title">Main DNS</label>
+                        <div class="div_node"><input class="input_text" id="dns" name="lan.dns" value="8.8.8.8" type="text" /></div> 
+                    </li>
+                    <li id="lidns2">
+                        <label class="label_title">Backup DNS</label>
+                        <div class="div_node"><input class="input_text" id="dns2" name="lan.dns2" value="8.8.4.4" type="text" /></div>
+                    </li>
+                    <li id="lipppuser">
+                        <label class="label_title">PAP/CHAP Username</label>
+                        <div class="div_node"><input class="input_text" id="pppuser" name="lan.pppuser" placeholder="pppoeusername" type="text" /></div>
+                    </li>
+                    <li id="lippppwd">
+                        <label class="label_title">PAP/CHAP Password</label>
+                        <div class="div_node"><input class="input_text" id="ppppwd" name="lan.ppppwd" placeholder="pppoepassword" type="text" /></div>
+                    </li>
+                 </ul>
+                </div>
+                <script type="text/javascript">cbi_t_add('usr.usr', 'test1')</script>
+                <div id="container.usr.usr.test2" style="display:none">
+                 <ul class="section_node">
+                    <li>
+                        <label class="label_title">Close DHCP Server</label>
+                        <div class="div_node"><input id="dhcps_enabled" name="lan.dhcps_enabled" value="" type="checkbox" checked="checked" /></div>
+                    </li>
+                    <li>
+                        <label class="label_title">Start Address</label>
+                        <div class="div_node"><input class="input_text" id="dhcpipstart" name="lan.dhcpipstart" placeholder="192.168.1.100" type="text" /></div>
+                    </li>
+                    <li>
+                        <label class="label_title">Number</label>
+                        <div class="div_node"><input class="input_text" id="dhcpipnum" name="lan.dhcpipnum" placeholder="100" type="text" /></div>
+                    </li>
+                    <li>
+                        <label class="label_title">Rent Time</label>
+                        <div class="div_node"><input class="input_text" id="dhcpiptime" name="lan.dhcpiptime" placeholder="12h" type="text" /></div>
+                    </li>
+                 </ul>
+                </div>
+                <script type="text/javascript">cbi_t_add('usr.usr', 'test2')</script>
+				
+            </fieldset>
+            <div class="usr_submit"><input class="submit" name="" value="Save&Apply" type="submit" onclick="document.network_form.submit();"/></div>
+         </fieldset>
+		 </form>
+      </div>
+    </div>
+</div>
+</body>
+</html>

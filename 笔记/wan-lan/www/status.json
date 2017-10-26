@@ -1,0 +1,29 @@
+{
+"hostname": "<!--#uci get system.@system[0].hostname -q-->",
+"firm_ver": "V1.0.1",
+"local_time": "<!--#shellcmd:date -Iseconds | sed 's/T/ /g'-->",
+"up_time": "<!--#shellcmd:cat /proc/uptime| awk -F. '{run_days=$1 / 86400;run_hour=($1 % 86400)/3600;run_minute=($1 % 3600)/60;run_second=$1 % 60;printf("%dday %dhour %dmin %dsec",run_days,run_hour,run_minute,run_second)}'-->",
+"avg_load": "<!--#shellcmd:uptime | awk -F ',  load average:' '{print $2}'-->",
+"memtotal": "<!--#shellcmd:free -m | sed -n '2p' | awk '{print $2}'-->",
+"memfree": "<!--#shellcmd:free -m | sed -n '2p' | awk '{print $4}'-->",
+"memcache": "<!--#shellcmd:free -m | sed -n '2p' | awk '{print $5}'-->",
+"membuff": "<!--#shellcmd:free -m | sed -n '2p' | awk '{print $6}'-->",
+"wan": { "ifname": "<!--#shellcmd:echo eth0-->", 
+"proto": "<!--#shellcmd:uci get network.eth0mode.proto -q-->", 
+"ipaddr": "<!--#shellcmd:ifconfig eth0 | grep 'inet addr' | awk '{print $2}' | awk -F 'addr:' '{print $2}'-->", 
+"netmask": "<!--#shellcmd:ifconfig eth0 | grep Mask | awk '{print $4}' | awk -F ':' '{print $2}'-->", 
+"gwaddr": "<!--#shellcmd:route -n | sed -n '3p' | awk '{print $2}'-->" ,
+"dns": "<!--#shellcmd:cat /tmp/resolv.conf | grep nameserver | awk '{print $2}' | sed -n '1p'-->" ,
+"ifuptime": "<!--#shellcmd:ifconfig eth0 | grep RUNNING-->" },
+"lan": { "ifname": "<!--#shellcmd:echo br0-->", 
+"proto": "<!--#shellcmd:uci get network.lan.proto -q-->", 
+"ipaddr": "<!--#shellcmd:ifconfig br0 | grep 'inet addr' | awk '{print $2}' | awk -F 'addr:' '{print $2}'-->", 
+"netmask": "<!--#shellcmd:ifconfig br0 | grep Mask | awk '{print $4}' | awk -F ':' '{print $2}'-->", 
+"gwaddr": "<!--#shellcmd:route -n | sed -n '3p' | awk '{print $2}'-->" ,
+"dns": "<!--#shellcmd:cat /tmp/resolv.conf | grep nameserver | awk '{print $2}' | sed -n '1p'-->" ,
+"ifuptime": "<!--#shellcmd:ifconfig br0 | grep RUNNING-->" },
+
+"arptable": [
+<!--#shellcmd:arp -a | awk -F '(' '{print $2}' | sed -r 's/) at/","macaddr":"/g' | sed -r 's/ on /","ifname": "/g' | sed 's/^/{"ipaddr": "&/g' | sed 's/$/",},/g' | sed -r 's/<incomplete>/unresloved/g'-->
+] ,
+ }

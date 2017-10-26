@@ -1,0 +1,191 @@
+一、修改linux内核,添加3G/4G模块驱动  
+   
+   1)增加对3G+4G模块的支持
+	Device Drivers  --->			
+	     [*] USB support ---> 
+		     <*> USB Serial Converter support --->   
+			 [*] USB Serial Console device support   
+			 [*] USB Generic Serial Driver   
+			 <*> USB driver for GSM and CDMA modems
+		     <*>USB Modem (CDC ACM) support
+		
+	     [*]Network device support  --->
+			USB Network Adapters  --->
+			<*> Multi-purpose USB Networking Framework
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+			-*-   CDC Ethernet support (smart devices such as cable modems)
+			<*>   CDC NCM support
+			<*>   Host for RNDIS and ActiveSync devices
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+
+
+	2)增加对3G4G模块的支持，驱动过滤
+	打开文件gedit ./drivers/usb/serial/option.c，增加USB枚举类型：
+	static const struct usb_device_id option_ids[] = {
+	{ USB_DEVICE(0x19d2, 0x0536) },
+	{ USB_DEVICE(0x19d2, 0x0199) },
+
+	打开文件gedit ./drivers/usb/serial/usb-serial.c，增加驱动过滤，防止被其他程序加载
+	在type = search_serial_device(interface);前面增加如下代码：
+	if ( (le16_to_cpu(dev->descriptor.idVendor) == 0x19d2) &&
+		( (le16_to_cpu(dev->descriptor.idProduct) == 0x0536) || 
+		  (le16_to_cpu(dev->descriptor.idProduct) == 0x0199) )
+		)
+	{
+		 if ((1 == interface->cur_altsetting->desc.bInterfaceNumber) ||
+		 ( 0 == interface->cur_altsetting->desc.bInterfaceNumber))
+		 {
+			mutex_unlock(&table_lock); 
+			return -ENODEV; 
+		 } 
+	}
+
+
+修改完成,编译linux内核,下载到板子
+
+以下操作是在板子控制台操作的【由于cat自身的一些问题,可能会出现指令延时或处理错误问题,我们在实际应用中可以编写串口读写的应用代码去操作配置3G/4G模块】
+
+/ # cat /dev/ttyUSB0&
+/ #
+/ # echo at^sysinfo > /dev/ttyUSB0
+/ #
+
+^SYSINFO: 2,4,0,17,1,,10
+
+OK
+
+/ # echo at+cgact=1,1 > /dev/ttyUSB0
+/ #
+
+OK
+
++ZGIPDNS: 1,1,"IP","10.94.149.43","0.0.0.0","202.102.128.68","202.102.134.68"
+
+/ # echo at+zgact=1,1 > /dev/ttyUSB0
+/ #
+
+OK
+
++ZCONSTAT: 1,1
+
+
+
+/ # ifconfig -a
+br0       Link encap:Ethernet  HWaddr 08:00:27:00:01:92
+          inet addr:192.168.1.8  Bcast:255.255.255.255  Mask:255.255.255.0
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:319 errors:0 dropped:2 overruns:0 frame:0
+          TX packets:12 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:30901 (30.1 KiB)  TX bytes:1992 (1.9 KiB)
+
+eth0      Link encap:Ethernet  HWaddr 08:00:27:00:01:92
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:14 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:4606 (4.4 KiB)  TX bytes:0 (0.0 B)
+
+eth1      Link encap:Ethernet  HWaddr 08:00:27:00:01:93
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:507 errors:0 dropped:1 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:97505 (95.2 KiB)  TX bytes:0 (0.0 B)
+
+eth2      Link encap:Ethernet  HWaddr 00:A0:C6:00:00:00
+          inet addr:10.94.149.43  Bcast:10.94.255.255  Mask:255.255.0.0
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:3 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:2 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:1198 (1.1 KiB)  TX bytes:684 (684.0 B)
+
+gre0      Link encap:UNSPEC  HWaddr 00-00-00-00-0B-00-0A-00-00-00-00-00-00-00-00-00
+          NOARP  MTU:1476  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+gretap0   Link encap:Ethernet  HWaddr 00:00:00:00:00:00
+          BROADCAST MULTICAST  MTU:1476  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+lo        Link encap:Local Loopback
+          LOOPBACK  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+tunl0     Link encap:UNSPEC  HWaddr 00-00-00-00-0B-00-0A-00-00-00-00-00-00-00-00-00
+          NOARP  MTU:0  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+
+		  
+/ # udhcpc -i eth2
+udhcpc (v1.22.1) started
+Sending discover...
+Sending select for 10.94.149.43...
+Lease of 10.94.149.43 obtained, lease time 86400
+deleting routers
+route: ioctl 0x890c failed: No such process
+adding dns 202.102.128.68
+
+/ # ifconfig br0 down
+br0: port 2(eth1) entered disabled state
+/ # ping 8.8.8.8
+PING 8.8.8.8 (8.8.8.8): 56 data bytes
+64 bytes from 8.8.8.8: seq=0 ttl=50 time=367.767 ms
+64 bytes from 8.8.8.8: seq=1 ttl=50 time=221.050 ms
+64 bytes from 8.8.8.8: seq=2 ttl=50 time=245.325 ms
+64 bytes from 8.8.8.8: seq=3 ttl=50 time=235.350 ms
+64 bytes from 8.8.8.8: seq=4 ttl=50 time=220.750 ms
+^C
+--- 8.8.8.8 ping statistics ---
+5 packets transmitted, 5 packets received, 0% packet loss
+round-trip min/avg/max = 220.750/258.048/367.767 ms
+
+
+目前可以4G模块可以上网了。
+
+我们应用层编写socket网络发送数据程序时,是不用考虑使用哪个网卡的,因为网络协议栈会帮我们优选选择与目标ip同网段或的网卡进行数据发送。
+
+本来想着,把N668底板,通过桥接4G模块的方式,做个4G路由器呢。。目前未验证通过。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	  

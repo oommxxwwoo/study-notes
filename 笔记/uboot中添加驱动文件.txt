@@ -1,0 +1,73 @@
+目的：
+在u-boot中增加驱动的步骤；
+例子：增加test_by_mxw驱动
+
+1、在u-boot/drivers目录下新建test_by_mxw目录，并在test_by_mxw目录下新建test_by_mxw.c,test_by_mxw.h文件
+test_by_mxw.c内容如下
+#include<common.h>
+void test_by_mxw(void)
+{
+	printf("--test_by_mxw-- \n");
+}
+
+test_by_mxw.h内容如下
+#ifndef _TEST_BY_MXW_H
+#define _TEST_BY_MXW_H
+void test_by_mxw(void);
+#endif
+ 
+2、在u-boot/drivers/test_by_mxw目录下添加Makefile文件，(可参考driver下的任一makefile)内容如下
+
+include $(TOPDIR)/config.mk
+
+LIB := $(obj)libtest_by_mxw.o
+
+#COBJS-$(1) = test_by_mxw.o
+COBJS-y += test_by_mxw.o	#此处必须为 -y ,否则不会被编译进去
+
+COBJS	:= $(COBJS-y)
+SRCS	:= $(COBJS:.o=.c)
+OBJS	:= $(addprefix $(obj),$(COBJS))
+
+all:	$(LIB)
+
+$(LIB): $(obj).depend $(OBJS)
+	$(call cmd_link_o_target, $(OBJS))
+
+#########################################################################
+
+include $(SRCTREE)/rules.mk
+
+sinclude $(obj).depend
+
+#########################################################################
+
+3、修改u-boot目录下的Makefile文件
+ 在适当位置增加(可以紧跟着原来Makefile里面有相似命令的地方)
+LIBS-y += drivers/test_by_mxw/libtest_by_mxw.o
+
+4、board/main.c中
+只要包含进去test_by_mxw.h,即可.如:#include "../drivers/test_by_mxw/test_by_mxw.h"
+完成以上步骤之后就可以在main.c中的函数中调用test_by_mxw函数了。
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 

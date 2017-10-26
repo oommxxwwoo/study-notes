@@ -1,0 +1,1954 @@
+一、linux启动新进程的几种方法
+1、system函数调用;
+
+#include <stdlib.h>  
+int system (const char *string);
+
+作用:运行以字符串参数的形式传递给它的命令并等待该命令的完成
+[reboot <==> sh -c reboot <==>system("reboot")]
+system("ps au &"),system("ps au");第一个system函数立即返回.
+命令的执行情况就如同在shell中执行命令：sh -c string。如果无法启动shell来运行这个命令，system函数返回错误代码127；如果是其他错误，则返回-1。否则，system函数将返回该命令的退出码。
+system函数调用用一个shell来启动想要执行的程序,把这个程序放到后台中执行
+
+2、exec系列函数[替换进程映像]
+特点:在新的程序启动后,原来的程序就不再执行了.
+exec启动的新进程继承了原进程的许多特性，在原进程中已打开的文件描述符在新进程中仍将保持打开，但需要注意，任何在原进程中已打开的目录流都将在新进程中被关闭。
+#include <unistd.h>
+
+char **environ;
+
+int execl (const char *path, const char *arg0, ..., (char*)0);
+int execlp(const char *file, const char *arg0, ..., (char*)0);
+int execle(const char *path, const char *arg0, ..., (char*)0, char *const envp[]);
+
+int execv (const char *path, char *const argv[]);
+int execvp(cosnt char *file, char *const argv[]);
+int execve(const char *path, char *const argv[], char *const envp[]);
+
+示例:
+
+char *const ps_envp[] = {"PATH=/bin:usr/bin", "TERM=console", 0};
+char *const ps_argv[] = {"ps", "au", 0};
+
+execl("/bin/ps", "ps", "au", 0);
+execlp("ps", "ps", "au", 0);
+execle("/bin/ps", "ps", "au", 0, ps_envp);
+
+execv("/bin/ps", ps_argv);
+execvp("ps", ps_argv);
+execve("/bin/ps", ps_argv, ps_envp);
+
+3、fork函数[复制进程映像]
+
+用fork来复制一个新的进程，新的进程几乎与原进程一模一样，执行的代码也完全相同，但新进程有自己的数据空间、环境和文件描述符。
+
+#include <sys/type.h>
+#include <unistd.h>
+
+pid_t fork();
+注：在父进程中，fork返回的是新的子进程的PID，子进程中的fork返回的是0，我们可以通过这一点来判断父进程和子进程，如果fork调用失败，它返回-1.
+示例:
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	pid_t pid = fork();
+	switch(pid)
+	{
+	case -1:
+		perror("fork failed");
+		exit(1);
+		break;
+	case 0:
+		//这是在子进程中，调用execlp切换为ps进程
+		printf("\n");
+		execlp("ps", "ps", "au", 0);
+		break;
+	default:
+		//这是在父进程中，输出相关提示信息
+		printf("Parent, ps Done\n");
+		break;
+	}
+	exit(0);
+}
+
+父进程先于子程序执行.当然用wait和waitpid函数,可以先让子进程运行。注意，一般情况下，父进程与子进程的生命周期是没有关系的，即便父进程退出了，子进程仍然可以正常运行。
+
+#include <sys/types.h>
+#include <sys/wait.h>
+
+pid_t wait(int *stat_loc);
+pid_t waitpid(pid_t pid, int *stat_loc, int options)
+wait用于在父进程中调用，让父进程暂停执行等待子进程的结束，返回子进程的PID，如果stat_loc不是空指针，状态信息将被写入stat_loc指向的位置。
+
+示例:
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	pid_t pid = fork();
+	int stat = 0;
+	switch(pid)
+	{
+	case -1:
+		perror("fork failed");
+		exit(1);
+		break;
+	case 0:
+		//这是在子进程中，调用execlp切换为ps进程
+		printf("\n");
+		execlp("ps", "ps", "au", 0);
+		break;
+	default:
+		//这是在父进程中，等待子进程结束并输出相关提示信息
+		pid = wait(&stat);
+		printf("Child has finished: PID = %d\n", pid);
+		//检查子进程的退出状态
+		if(WIFEXITED(stat))
+			printf("Child exited with code %d\n", WEXITSTATUS(stat));
+		else
+			printf("Child terminated abnormally\n");
+		printf("Parent, ps Done\n");
+		break;
+	}
+	exit(0);
+}
+
+
+二、信号
+
+信号是UNIX和Linux系统响应某些条件而产生的一个事件，接收到该信号的进程会相应地采取一些行动。
+通常信号是由一个错误产生的。但它们还可以作为进程间通信或修改行为的一种方式，明确地由一个进程发送给另一个进程。一个信号的产生叫生成，接收到一个信号叫捕获。
+
+信号的种类在signal.h中定义,都以SIG开头,常用信号:
+SIGALRM  -->由alarm函数设置的定时器产生
+SIGHUP   -->由一个处于非连接状态的终端发给控制进程,或者有控制进程在自身结束时发给每一个前台进程。
+SIGINT   -->一般由从终端敲入的ctrl+c组合键或预选设置好的中断字符产生。
+SIGKILL  -->因为这个信号不能被捕获或忽略,所以一般在shell中用来强制终止异常进程。
+SIGPIPE  -->如果向管道写入数据时,没有与之对应的读进程,就会产生这个信号。
+SIGTERM  -->作为一个请求被发送,要求进程结束运行。UNIX在关机时用这个信号要求系统服务停止运行。它是kill命令默认发送的信号。
+SIGUSR1/SIGUSR2-->进程之间可以用这个信号进行通信,例如让进程报告状态信息等。
+
+1、信号的处理--signal函数
+
+程序可用使用signal函数来处理指定的信号，主要通过忽略和恢复其默认行为来工作。signal函数的原型如下
+
+#include <signal.h>
+void (*signal(int sig, void (*func)(int)))(int);
+
+注意信号处理函数的原型必须为void func（int），或者是下面的特殊值：
+SIG_IGN:忽略信号
+SIG_DFL:恢复信号的默认行为
+
+示例:
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void ouch(int sig)
+{
+	printf("\nOUCH! - I got signal %d\n", sig);
+	//恢复终端中断信号SIGINT的默认行为
+	(void) signal(SIGINT, SIG_DFL);
+}
+
+int main()
+{
+	//改变终端中断信号SIGINT的默认行为，使之执行ouch函数
+	//而不是终止程序的执行
+	(void) signal(SIGINT, ouch);
+	while(1)
+	{
+		printf("Hello World!\n");
+		sleep(1);
+	}
+	return 0;
+}
+
+2、信号的处理--sigaction函数
+#include <signal.h>
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
+
+该函数与signal函数一样，用于设置与信号sig关联的动作，而oact如果不是空指针的话，就用它来保存原先对该信号的动作的位置，act则用于设置指定信号的动作。
+
+igaction结构体定义在signal.h中，但是它至少包括以下成员：
+void (*) (int) sa_handler;处理函数指针，相当于signal函数的func参数。
+sigset_t sa_mask; 指定一个。信号集，在调用sa_handler所指向的信号处理函数之前，该信号集将被加入到进程的信号屏蔽字中。信号屏蔽字是指当前被阻塞的一组信号，它们不能被当前进程接收到
+int sa_flags;信号处理修改器;
+
+设置信号屏蔽字sa_mask可以防止信号在它的处理函数还未运行结束时就被接收到的情况，即使用sa_mask字段可以消除这一竞态条件。
+
+示例:
+
+#include <unistd.h>
+#include <stdio.h>
+#include <signal.h>
+
+void ouch(int sig)
+{
+	printf("\nOUCH! - I got signal %d\n", sig);
+}
+
+int main()
+{
+	struct sigaction act;
+	act.sa_handler = ouch;
+	//创建空的信号屏蔽字，即不屏蔽任何信息
+	sigemptyset(&act.sa_mask);
+	//使sigaction函数重置为默认行为
+	act.sa_flags = SA_RESETHAND;
+
+	sigaction(SIGINT, &act, 0);
+
+	while(1)
+	{
+		printf("Hello World!\n");
+		sleep(1);
+	}
+	return 0;
+}
+运行结果与前一个例子中的相同。注意sigaction函数在默认情况下是不被重置的，如果要想它重置，则sa_flags就要为SA_RESETHAND。
+
+3、kill函数
+
+#include <sys/types.h>
+#include <signal.h>
+int kill(pid_t pid, int sig);
+进程可以通过kill函数向包括它本身在内的其他进程发送一个信号，如果程序没有发送这个信号的权限，对kill函数的调用就将失败；
+
+4、alarm函数
+
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+alarm函数用来在seconds秒之后安排发送一个SIGALRM信号，如果seconds为0，将取消所有已设置的闹钟请求。alarm函数的返回值是以前设置的闹钟时间的余留秒数，如果返回失败返回-1
+
+
+示例:
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <signal.h>
+
+static int alarm_fired = 0;
+
+void ouch(int sig)
+{
+	alarm_fired = 1;
+}
+
+int main()
+{
+	pid_t pid;
+	pid = fork();
+	switch(pid)
+	{
+	case -1:
+		perror("fork failed\n");
+		exit(1);
+	case 0:
+		//子进程
+		sleep(5);
+		//向父进程发送信号
+		kill(getppid(), SIGALRM);
+		exit(0);
+	default:;
+	}
+	//设置处理函数
+	signal(SIGALRM, ouch);
+	while(!alarm_fired)
+	{
+		printf("Hello World!\n");
+		sleep(1);
+	}
+	if(alarm_fired)
+		printf("\nI got a signal %d\n", SIGALRM);
+
+	exit(0);
+}
+注：如果父进程在子进程的信号到来之前没有事情可做，我们可以用函数pause（）来挂起父进程，直到父进程接收到信号。
+当进程接收到一个信号时，预设好的信号处理函数将开始运行，程序也将恢复正常的执行。
+这样可以节省CPU的资源，因为可以避免使用一个循环来等待。以本例子为例，则可以把while循环改为一句pause();
+
+示例:
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <signal.h>
+
+static int alarm_fired = 0;
+
+void ouch(int sig)
+{
+	alarm_fired = 1;
+}
+
+int main()
+{
+	//关联信号处理函数
+	signal(SIGALRM, ouch);
+	//调用alarm函数，5秒后发送信号SIGALRM
+	alarm(5);
+	//挂起进程
+	pause();
+	//接收到信号后，恢复正常执行
+	if(alarm_fired == 1)
+		printf("Receive a signal %d\n", SIGALRM);
+	exit(0);
+}
+
+5、信号处理函数的安全问题
+试想一个问题，当进程接收到一个信号时，转到你关联的函数中执行，但是在执行的时候，
+进程又接收到同一个信号或另一个信号，又要执行相关联的函数时，程序会怎么执行？
+也就是说，信号处理函数可以在其执行期间被中断并被再次调用。
+当返回到第一次调用时，它能否继续正确操作是很关键的。
+这不仅仅是递归的问题，而是可重入的（即可以完全地进入和再次执行）的问题。
+
+三、linux获取进程PID
+
+1、shell下面获取进程PID
+
+$ps x|grep xxx  |awk '{print $1}'
+
+ 
+
+e.g.
+
+      ps x|grep java |awk '{print $1}'
+
+注释：
+
+      1、xxx为执行的命令名称
+
+      2、举个例子，获取当前用户下的java进程 【pid】
+
+           [admin@vm168a ~]$ ps x|grep java |awk '{print $1}'
+           16920
+
+      3、用到三个命令，ps、grep、awk。
+
+2、linux C下面使用popen获取进程PID
+#include<stdio.h>
+#include<string.h>
+void main()
+{
+    FILE *fp = popen("ps -e | grep \'test\' | awk \'{print $1}\'", "r");//打开管道，执行shell 命令
+    char buffer[10] = {0};
+    while (NULL != fgets(buffer, 10, fp)) //逐行读取执行结果并打印
+    {
+        printf("PID:  %s", buffer);
+    }
+    pclose(fp); //关闭返回的文件指针，注意不是用fclose噢
+}
+
+
+四、linux进程间通信--信号量
+
+为了防止出现因多个程序同时访问一个共享资源而引发的一系列问题，
+在任一时刻只能有一个执行线程访问代码的临界区域。临界区域是指执行数据更新的代码需要独占式地执行。
+而信号量就可以提供这样的一种访问机制，让一个临界区同一时间只有一个线程在访问它，也就是说信号量是用来调协进程对共享资源的访问的。
+
+信号量是一个特殊的变量，程序对其访问都是原子操作，且只允许对它进行等待和发送信息操作。
+最简单的信号量是只能取0和1的变量，这也是信号量最常见的一种形式，叫做二进制信号量。
+而可以取多个正整数的信号量被称为通用信号量。
+这里主要讨论二进制信号量。
+
+头文件sys/sem.h中
+
+1、semget函数
+它的作用是创建一个新信号量或取得一个已有信号量,原型为:
+int semget(key_t key, int num_sems, int sem_flags);
+
+第一个参数key是整数值（唯一非零），不相关的进程可以通过它访问一个信号量.
+程序先通过调用semget函数并提供一个键，再由系统生成一个相应的信号标识符（semget函数的返回值），
+只有semget函数才直接使用信号量键，所有其他的信号量函数使用由semget函数返回的信号量标识符。
+如果多个进程使用相同的key值，key将负责协调工作。
+
+num_sems指定信号量数目,一般为1,只建立一个信号量,如果用到一组信号量(多个信号量),可以多建立.
+
+第三个参数sem_flags是一组标志，当信号量不存在时创建一个新的信号量，可以和值IPC_CREAT做按位或操作。
+设置了IPC_CREAT标志后，即使给出的键是一个已有信号量的键，也不会产生错误。
+而IPC_CREAT | IPC_EXCL则可以创建一个新的，唯一的信号量，如果信号量已存在，返回一个错误。
+
+semget函数成功返回一个相应信号标识符（非零），失败返回-1.
+
+2、semop函数
+它的作用是改变信号量的值,原型为:
+int semop(int sem_id, struct sembuf *sem_opa, size_t num_sem_ops);
+sem_id是由semget返回的信号量标识符，sembuf结构的定义如
+struct sembuf{
+    short sem_num;//除非使用一组信号量，否则它为0
+    short sem_op;//信号量在一次操作中需要改变的数据，通常是两个数，一个是-1，即P（等待）操作，
+                    //一个是+1，即V（发送信号）操作。
+    short sem_flg;//通常为SEM_UNDO,使操作系统跟踪信号，
+                    //并在进程没有释放该信号量而终止时，操作系统释放信号量
+};
+
+3、semctl函数
+该函数用来直接控制信号量信息,原型为
+int semctl(int sem_id, int sem_num, int command, ...);
+如果有第四个参数,它通常是一个union semun结构体,定义如下
+union semun{
+    int val;
+    struct semid_ds *buf;
+    unsigned short *arry;
+};
+
+ommand通常是下面两个值中的其中一个
+SETVAL：用来把信号量初始化为一个已知的值。p 这个值通过union semun中的val成员设置，其作用是在信号量第一次使用前对它进行设置。
+IPC_RMID：用于删除一个已经无需继续使用的信号量标识符。
+
+示例:
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/sem.h>
+
+union semun
+{
+	int val;
+	struct semid_ds *buf;
+	unsigned short *arry;
+};
+
+static int sem_id = 0;
+
+static int set_semvalue();
+static void del_semvalue();
+static int semaphore_p();
+static int semaphore_v();
+
+int main(int argc, char *argv[])
+{
+	char message = 'X';
+	int i = 0;
+
+	//创建信号量
+	sem_id = semget((key_t)1234, 1, 0666 | IPC_CREAT);
+
+	if(argc > 1)
+	{
+		//程序第一次被调用，初始化信号量
+		if(!set_semvalue())
+		{
+			fprintf(stderr, "Failed to initialize semaphore\n");
+			exit(EXIT_FAILURE);
+		}
+		//设置要输出到屏幕中的信息，即其参数的第一个字符
+		message = argv[1][0];
+		sleep(2);
+	}
+	for(i = 0; i < 10; ++i)
+	{
+		//进入临界区
+		if(!semaphore_p())
+			exit(EXIT_FAILURE);
+		//向屏幕中输出数据
+		printf("%c", message);
+		//清理缓冲区，然后休眠随机时间
+		fflush(stdout);
+		sleep(rand() % 3);
+		//再一次向屏幕输出数据
+		printf("%c", message);
+		fflush(stdout);
+		//离开临界区
+		if(!semaphore_v())
+			exit(EXIT_FAILURE);
+		sleep(rand() % 2);
+	}
+
+	sleep(10);
+	printf("\n%d - finished\n", getpid());
+
+	if(argc > 1)
+	{
+		//如果程序是第一次被调用，则在退出前删除信号量
+		sleep(3);
+		del_semvalue();
+	}
+	exit(EXIT_SUCCESS);
+}
+
+static int set_semvalue()
+{
+	//用于初始化信号量，在使用信号量前必须这样做
+	union semun sem_union;
+
+	sem_union.val = 1;
+	if(semctl(sem_id, 0, SETVAL, sem_union) == -1)
+		return 0;
+	return 1;
+}
+
+static void del_semvalue()
+{
+	//删除信号量
+	union semun sem_union;
+
+	if(semctl(sem_id, 0, IPC_RMID, sem_union) == -1)
+		fprintf(stderr, "Failed to delete semaphore\n");
+}
+
+static int semaphore_p()
+{
+	//对信号量做减1操作，即等待P（sv）
+	struct sembuf sem_b;
+	sem_b.sem_num = 0;
+	sem_b.sem_op = -1;//P()
+	sem_b.sem_flg = SEM_UNDO;
+	if(semop(sem_id, &sem_b, 1) == -1)
+	{
+		fprintf(stderr, "semaphore_p failed\n");
+		return 0;
+	}
+	return 1;
+}
+
+static int semaphore_v()
+{
+	//这是一个释放操作，它使信号量变为可用，即发送信号V（sv）
+	struct sembuf sem_b;
+	sem_b.sem_num = 0;
+	sem_b.sem_op = 1;//V()
+	sem_b.sem_flg = SEM_UNDO;
+	if(semop(sem_id, &sem_b, 1) == -1)
+	{
+		fprintf(stderr, "semaphore_v failed\n");
+		return 0;
+	}
+	return 1;
+}
+
+同时运行一个程序的两个实例
+gcc -o seml.exe seml.c -lm
+
+./seml.exe 0 & ./seml.exe
+
+注意:第一次运行时，要加上一个字符作为参数，例如本例中的字符‘O’，它用于区分是否为第一次调用，同时这个字符输出到屏幕中.
+
+信号量集合的示例:
+
+#include<stdio.h>
+#include<sys/types.h>
+#include<sys/ipc.h>
+#include<sys/sem.h>
+#include<errno.h>
+#include<string.h>
+#include<stdlib.h>
+#include<assert.h>
+#include<time.h>
+#include<unistd.h>
+#include<sys/wait.h>
+#define MAX_SEMAPHORE 10
+#define FILE_NAME "test2.c"
+ 
+union semun{
+    int val ;
+    struct semid_ds *buf ;
+    unsigned short *array ;
+    struct seminfo *_buf ;
+}arg;
+
+struct semid_ds sembuf;
+ 
+int main()
+{
+    key_t key ;
+    int semid ,ret,i;
+    unsigned short buf[MAX_SEMAPHORE] ;
+    struct sembuf sb[MAX_SEMAPHORE] ;
+    pid_t pid ;
+ 
+    pid = fork() ;
+    if(pid < 0)
+    {
+        /* Create process Error! */
+        fprintf(stderr,"Create Process Error!:%s\n",strerror(errno));
+        exit(1) ;
+    }
+
+
+   if(pid > 0)
+   {
+        /* in parent process !*/
+        key = ftok(FILE_NAME,'a') ;
+        if(key == -1)
+        {
+             /* in parent process*/
+             fprintf(stderr,"Error in ftok:%s!\n",strerror(errno));
+             exit(1) ;
+        }
+ 
+        semid = semget(key,MAX_SEMAPHORE,IPC_CREAT|0666); //创建信号量集合
+        if(semid == -1)
+        {
+            fprintf(stderr,"Error in semget:%s\n",strerror(errno));
+            exit(1) ;
+        }
+        printf("Semaphore have been initialed successfully in parent process,ID is :%d\n",semid);
+        sleep(2) ;
+        printf("parent wake up....\n");
+        /* 父进程在子进程得到semaphore的时候请求semaphore，此时父进程将阻塞直至子进程释放掉semaphore*/
+        /* 此时父进程的阻塞是因为semaphore 1 不能申请，因而导致的进程阻塞*/
+        for(i=0;i<MAX_SEMAPHORE;++i)
+        {
+            sb[i].sem_num = i ;
+            sb[i].sem_op = -1 ; /*表示申请semaphore*/
+            sb[i].sem_flg = 0 ;
+        }
+ 
+        printf("parent is asking for resource...\n");
+        ret = semop(semid , sb ,10); //p()
+        if(ret == 0)
+        {
+            printf("parent got the resource!\n");
+        }
+        /* 父进程等待子进程退出 */
+        waitpid(pid,NULL,0);
+        printf("parent exiting .. \n");
+        exit(0) ;
+    }
+    else
+    {
+        /* in child process! */
+        key = ftok(FILE_NAME,'a') ;
+        if(key == -1)
+        {
+             /* in child process*/
+             fprintf(stderr,"Error in ftok:%s!\n",strerror(errno));
+             exit(1) ;
+        }
+ 
+        semid = semget(key,MAX_SEMAPHORE,IPC_CREAT|0666);
+        if(semid == -1)
+        {
+              fprintf(stderr,"Error in semget:%s\n",strerror(errno));
+              exit(1) ;
+        }
+        printf("Semaphore have been initialed successfully in child process,ID is:%d\n",semid);
+ 
+        for(i=0;i<MAX_SEMAPHORE;++i)
+        {
+             /* Initial semaphore */
+             buf[i] = i + 1;
+        }
+    
+        arg.array = buf;
+        ret = semctl(semid , 0, SETALL,arg);
+        if(ret == -1)
+        {
+             fprintf(stderr,"Error in semctl in child:%s!\n",strerror(errno));
+             exit(1) ;
+        }
+        printf("In child , Semaphore Initailed!\n");
+ 
+        /* 子进程在初始化了semaphore之后，就申请获得semaphore*/
+        for(i=0;i<MAX_SEMAPHORE;++i)
+        {
+            sb[i].sem_num = i ;
+            sb[i].sem_op = -1 ;
+            sb[i].sem_flg = 0 ;
+        }
+
+        ret = semop(semid , sb , 10);//信号量0被阻塞
+        if( ret == -1 )
+        {
+            fprintf(stderr,"子进程申请semaphore失败：%s\n",strerror(errno));
+            exit(1) ;
+        }
+
+        printf("child got semaphore,and start to sleep 3 seconds!\n");
+        sleep(3) ;
+        printf("child wake up .\n");
+        for(i=0;i < MAX_SEMAPHORE;++i)
+        {
+            sb[i].sem_num = i ;
+            sb[i].sem_op = +1 ;
+            sb[i].sem_flg = 0 ;
+        }
+
+        printf("child start to release the resource...\n");
+        ret = semop(semid, sb ,10) ;
+        if(ret == -1)
+        {
+            fprintf(stderr,"子进程释放semaphore失败:%s\n",strerror(errno));
+            exit(1) ;
+        }
+    
+        ret = semctl(semid ,0 ,IPC_RMID);
+        if(ret == -1)
+        {
+            fprintf(stderr,"semaphore删除失败:%s！\n",strerror(errno));
+            exit(1) ;
+        } 
+
+        printf("child exiting successfully!\n");
+        exit(0) ;
+    }
+    return 0;
+}
+
+五、Linux进程间通信——信号集函数(相当于事件标志组),用的不多。
+
+六、Linux进程间通信——消息队列
+
+消息队列提供了一种从一个进程向另一个进程发送一个数据块的方法。  
+每个数据块都被认为含有一个类型，接收进程可以独立地接收含有不同类型的数据结构。
+我们可以通过发送消息来避免命名管道的同步和阻塞问题。但是消息队列与命名管道一样，每个数据块都有一个最大长度的限制。
+Linux用宏MSGMAX和MSGMNB来限制一条消息的最大长度和一个队列的最大长度。
+
+
+1、msgget函数
+
+int msgget(key_t, key, int msgflg);
+与其他的IPC机制一样，程序必须提供一个键来命名某个特定的消息队列。
+msgflg是一个权限标志，表示消息队列的访问权限，它与文件的访问权限一样。
+msgflg可以与IPC_CREAT做或操作，表示当key所命名的消息队列不存在时创建一个消息队列，如果key所命名的消息队列存在时，IPC_CREAT标志会被忽略，而只返回一个标识符。
+
+它返回一个以key命名的消息队列的标识符（非零整数），失败时返回-1.
+
+2、msgsnd函数
+
+int msgsend(int msgid, const void *msg_ptr, size_t msg_sz, int msgflg);
+
+msgid是由msgget函数返回的消息队列标识符。
+
+msg_ptr是一个指向准备发送消息的指针，但是消息的数据结构却有一定的要求，
+指针msg_ptr所指向的消息结构一定要是以一个长整型成员变量开始的结构体，接收函数将用这个成员来确定消息的类型。所以消息结构要定义成这样：
+struct my_message{  
+    long int message_type;  
+    /* The data you wish to transfer*/  
+};  
+msg_sz是msg_ptr指向的消息的长度，注意是消息的长度，而不是整个结构体的长度，也就是说msg_sz是不包括长整型消息类型成员变量的长度。
+
+msgflg用于控制当前消息队列满或队列消息到达系统范围的限制时将要发生的事情。
+
+如果调用成功，消息数据的一分副本将被放到消息队列中，并返回0，失败时返回-1.
+
+
+
+3、msgrcv函数
+该函数用来从一个消息队列获取消息，它的原型为
+
+int msgrcv(int msgid, void *msg_ptr, size_t msg_st, long int msgtype, int msgflg);  
+msgid, msg_ptr, msg_st的作用也函数msgsnd函数的一样。
+
+msgtype可以实现一种简单的接收优先级。如果msgtype为0，就获取队列中的第一个消息。
+如果它的值大于零，将获取具有相同消息类型的第一个信息。如果它小于零，就获取类型等于或小于msgtype的绝对值的第一个消息。
+
+msgflg用于控制当队列中没有相应类型的消息可以接收时将发生的事情。
+
+调用成功时，该函数返回放到接收缓存区中的字节数，消息被复制到由msg_ptr指向的用户分配的缓存区中，然后删除消息队列中的对应消息。失败时返回-1.
+
+
+4、msgctl函数
+该函数用来控制消息队列，它与共享内存的shmctl函数相似，它的原型为：
+
+int msgctl(int msgid, int command, struct msgid_ds *buf);  
+command是将要采取的动作，它可以取3个值，
+    IPC_STAT：把msgid_ds结构中的数据设置为消息队列的当前关联值，即用消息队列的当前关联值覆盖msgid_ds的值。
+    IPC_SET：如果进程有足够的权限，就把消息列队的当前关联值设置为msgid_ds结构中给出的值
+    IPC_RMID：删除消息队列
+
+buf是指向msgid_ds结构的指针，它指向消息队列模式和访问权限的结构。msgid_ds结构至少包括以下成员：
+
+struct msgid_ds  
+{  
+    uid_t shm_perm.uid;  
+    uid_t shm_perm.gid;  
+    mode_t shm_perm.mode;  
+};  
+成功时返回0，失败时返回-1.
+
+示例:
+
+recieve.c
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/msg.h>
+
+struct msg_st
+{
+	long int msg_type;
+	char text[BUFSIZ];
+};
+
+int main()
+{
+	int running = 1;
+	int msgid = -1;
+	struct msg_st data;
+	long int msgtype = 0; //注意1
+
+	//建立消息队列
+	msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
+	if(msgid == -1)
+	{
+		fprintf(stderr, "msgget failed with error: %d\n", errno);
+		exit(EXIT_FAILURE);
+	}
+	//从队列中获取消息，直到遇到end消息为止
+	while(running)
+	{
+		if(msgrcv(msgid, (void*)&data, BUFSIZ, msgtype, 0) == -1)
+		{
+			fprintf(stderr, "msgrcv failed with errno: %d\n", errno);
+			exit(EXIT_FAILURE);
+		}
+		printf("You wrote: %s\n",data.text);
+		//遇到end结束
+		if(strncmp(data.text, "end", 3) == 0)
+			running = 0;
+	}
+	//删除消息队列
+	if(msgctl(msgid, IPC_RMID, 0) == -1)
+	{
+		fprintf(stderr, "msgctl(IPC_RMID) failed\n");
+		exit(EXIT_FAILURE);
+	}
+	exit(EXIT_SUCCESS);
+}
+
+send.c
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/msg.h>
+#include <errno.h>
+
+#define MAX_TEXT 512
+struct msg_st
+{
+	long int msg_type;
+	char text[MAX_TEXT];
+};
+
+int main()
+{
+	int running = 1;
+	struct msg_st data;
+	char buffer[BUFSIZ];
+	int msgid = -1;
+
+	//建立消息队列
+	msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
+	if(msgid == -1)
+	{
+		fprintf(stderr, "msgget failed with error: %d\n", errno);
+		exit(EXIT_FAILURE);
+	}
+
+	//向消息队列中写消息，直到写入end
+	while(running)
+	{
+		//输入数据
+		printf("Enter some text: ");
+		fgets(buffer, BUFSIZ, stdin);
+		data.msg_type = 1;    //注意2
+		strcpy(data.text, buffer);
+		//向队列发送数据
+		if(msgsnd(msgid, (void*)&data, MAX_TEXT, 0) == -1)
+		{
+			fprintf(stderr, "msgsnd failed\n");
+			exit(EXIT_FAILURE);
+		}
+		//输入end结束输入
+		if(strncmp(buffer, "end", 3) == 0)
+			running = 0;
+		sleep(1);
+	}
+	exit(EXIT_SUCCESS);
+}
+
+这里主要说明一下消息类型是怎么一回事，注意msgreceive.c文件main函数中定义的变量msgtype（注释为注意1），
+它作为msgrcv函数的接收信息类型参数的值，其值为0，表示获取队列中第一个可用的消息。
+再来看看msgsend.c文件中while循环中的语句data.msg_type = 1（注释为注意2），
+它用来设置发送的信息的信息类型，即其发送的信息的类型为1。所以程序msgreceive能够接收到程序msgsend发送的信息。
+
+如果把注意1，即msgreceive.c文件main函数中的语句由long int msgtype = 0;改变为long int msgtype = 2;
+会发生什么情况，msgreceive将不能接收到程序msgsend发送的信息。因为在调用msgrcv函数时，
+如果msgtype（第四个参数）大于零，则将只获取具有相同消息类型的第一个消息，修改后获取的消息类型为2，
+而msgsend发送的消息类型为1，所以不能被msgreceive程序接收
+
+5、消息队列与命名管道的比较
+
+消息队列跟命名管道有不少的相同之处，通过与命名管道一样，消息队列进行通信的进程可以是不相关的进程，同时它们都是通过发送和接收的方式来传递数据的。
+在命名管道中，发送数据用write，接收数据用read，则在消息队列中，发送数据用msgsnd，接收数据用msgrcv。而且它们对每个数据都有一个最大长度的限制。
+
+与命名管道相比，消息队列的优势在于
+1、消息队列也可以独立于发送和接收进程而存在，从而消除了在同步命名管道的打开和关闭时可能产生的困难。
+2、多个进程同时发送消息还可以避免命名管道的同步和阻塞问题，不需要由进程自己来提供同步方法。接收程序可以通过消息类型有选择地接收数据，而不是像命名管道中那样，只能默认地接收。
+
+七、Linux进程间通信——匿名管道
+
+
+管道是一个进程连接数据流到另一个进程的通道，它通常是用作把一个进程的输出通过管道连接到另一个进程的输入。
+
+举个例子，在shell中输入命令：ls -l | grep string，
+我们知道ls命令（其实也是一个进程）会把当前目录中的文件都列出来，
+但是它不会直接输出，而是把本来要输出到屏幕上的数据通过管道输出到grep这个进程中，
+作为grep这个进程的输入，然后这个进程对输入的信息进行筛选，把存在string的信息的字符串（以行为单位）打印在屏幕上
+
+
+1、使用popen函数
+popen函数和pclose函数介绍它们的原型如下：
+
+#include <stdio.h>  
+FILE* popen (const char *command, const char *open_mode);  
+int pclose(FILE *stream_to_close);  
+
+popen函数允许一个程序将另一个程序作为新进程来启动，并可以传递数据给它或者通过它接收数据。
+command是要运行的程序名和相应的参数。open_mode只能是"r（只读）"和"w（只写）"的其中之一。
+注意，popen函数的返回值是一个FILE类型的指针，而Linux把一切都视为文件，也就是说我们可以使用stdio I/O库中的文件处理函数来对其进行操作。
+
+如果open_mode是"r"，主调用程序就可以使用被调用程序的输出，通过函数返回的FILE指针，就可以能过stdio函数（如fread）来读取程序的输出;
+如果open_mode是"w"，主调用程序就可以向被调用程序发送数据，即通过stdio函数（如fwrite）向被调用程序写数据，而被调用程序就可以在自己的标准输入中读取这些数据。
+pclose函数用于关闭由popen创建出的关联文件流。pclose只在popen启动的进程结束后才返回，如果调用pclose时被调用进程仍在运行，pclose调用将等待该进程结束。它返回关闭的文件流所在进程的退出码。
+
+示例:
+很多时候，我们根本就不知道输出数据的长度，为了避免定义一个非常大的数组作为缓冲区，
+我们可以以块的方式来发送数据，一次读取一个块的数据并发送一个块的数据，直到把所有的数据都发送完。
+下面的例子就是采用这种方式的数据读取和发送方式。源文件名为popen.c，代码如下：
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+int main()
+{
+	FILE *read_fp = NULL;
+	FILE *write_fp = NULL;
+	char buffer[BUFSIZ + 1];
+	int chars_read = 0;
+	
+	//初始化缓冲区
+	memset(buffer, '\0', sizeof(buffer));
+	//打开ls和grep进程
+	read_fp = popen("ls -l", "r");
+	write_fp = popen("grep rwxrwxr-x", "w");
+	//两个进程都打开成功
+	if(read_fp && write_fp)
+	{
+		//读取一个数据块
+		chars_read = fread(buffer, sizeof(char), BUFSIZ, read_fp);
+		while(chars_read > 0)
+		{
+			buffer[chars_read] = '\0';
+			//把数据写入grep进程
+			fwrite(buffer, sizeof(char), chars_read, write_fp);
+			//还有数据可读，循环读取数据，直到读完所有数据
+			chars_read = fread(buffer, sizeof(char), BUFSIZ, read_fp);
+		}
+		//关闭文件流
+		pclose(read_fp);
+		pclose(write_fp);
+		exit(EXIT_SUCCESS);
+	}
+	exit(EXIT_FAILURE);
+}
+
+序在进程ls中读取数据，再把数据发送到进程grep中进行筛选处理，相当于在shell中直接输入命令：ls -l | grep rwxrwxr-x。
+
+2、pipe调用
+
+如果说popen是一个高级的函数，pipe则是一个底层的调用。与popen函数不同的是，它在两个进程之间传递数据不需要启动一个shell来解释请求命令，同时它还提供对读写数据的更多的控制。
+
+pipe函数的原型如下：
+
+#include <unistd.h>  
+int pipe(int file_descriptor[2]);  
+
+该函数参数为两个新的文件描述符。成功返回0，如果返回返回-1，并设置errno来说明失败原因。
+
+数组中的两个文件描述符以一种特殊的方式连接起来，数据基于先进先出的原则，写到file_descriptor[1]的所有数据都可以从file_descriptor[0]读回来。
+由于数据基于先进先出的原则，所以读取的数据和写入的数据是一致的。
+
+特别提醒：
+1、从函数的原型我们可以看到，它跟popen函数的一个重大区别是，popen函数是基于文件流（FILE）工作的，而pipe是基于文件描述符工作的，所以在使用pipe后，数据必须要用底层的read和write调用来读取和发送。
+2、不要用file_descriptor[0]写数据，也不要用file_descriptor[1]读数据，其行为未定义的，但在有些系统上可能会返回-1表示调用失败。
+数据只能从file_descriptor[0]中读取，数据也只能写入到file_descriptor[1]，不能倒过来。
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+int main()
+{
+	int data_processed = 0;
+	int filedes[2];
+	const char data[] = "Hello pipe!";
+	char buffer[BUFSIZ + 1];
+	pid_t pid;
+	//清空缓冲区
+	memset(buffer, '\0', sizeof(buffer));
+
+	if(pipe(filedes) == 0)
+	{
+		//创建管道成功
+		//通过调用fork创建子进程
+		pid = fork();
+		if(pid == -1)
+		{
+			fprintf(stderr, "Fork failure");
+			exit(EXIT_FAILURE);
+		}
+		if(pid == 0)
+		{
+			//子进程中
+			//读取数据
+			data_processed = read(filedes[0], buffer, BUFSIZ);
+			printf("Read %d bytes: %s\n", data_processed, buffer);
+			exit(EXIT_SUCCESS);
+		}
+		else
+		{
+			//父进程中
+			//写数据
+			data_processed = write(filedes[1], data, strlen(data));
+			printf("Wrote %d bytes: %s\n", data_processed, data);
+			//休眠2秒，主要是为了等子进程先结束，这样做也只是纯粹为了输出好看而已
+			//父进程其实没有必要等等子进程结束
+			sleep(2);
+			exit(EXIT_SUCCESS);
+		}
+	}
+	exit(EXIT_FAILURE);
+}
+
+
+3、关于管道关闭后的读操作的讨论
+现在有这样一个问题，假如父进程向管道file_pipe[1]写数据，而子进程在管道file_pipe[0]中读取数据，
+当父进程没有向file_pipe[1]写数据时，子进程则没有数据可读，则子进程会发生什么呢？再者父进程把file_pipe[1]关闭了，子进程又会有什么反应呢？
+
+当写数据的管道没有关闭，而又没有数据可读时，read调用通常会阻塞，
+但是当写数据的管道关闭时，read调用将会返回0而不是阻塞。注意，这与读取一个无效的文件描述符不同，read一个无效的文件描述符返回-1。
+
+4、匿名管道的缺陷
+看了这么多相信大家也知道它的一个缺点，就是通信的进程，它们的关系一定是父子进程的关系，这就使得它的使用受到了一点的限制，
+但是我们可以使用命名管道来解决这个问题。
+
+八、linux进程间通信--命名管道
+
+1、什么是命名管道
+命名管道也被称为FIFO文件，它是一种特殊类型的文件，它在文件系统中以文件名的形式存在，但是它的行为却和之前所讲的没有名字的管道（匿名管道）类似。
+由于Linux中所有的事物都可被视为文件，所以对命名管道的使用也就变得与文件操作非常的统一，也使它的使用非常方便，同时我们也可以像平常的文件名一样在命令中使用。
+
+2、创建命名管道
+我们可以使用两下函数之一来创建一个命名管道，他们的原型如下：
+
+#include <sys/types.h>  
+#include <sys/stat.h>  
+int mkfifo(const char *filename, mode_t mode);  
+int mknod(const char *filename, mode_t mode | S_IFIFO, (dev_t)0);  
+这两个函数都能创建一个FIFO文件，注意是创建一个真实存在于文件系统中的文件，filename指定了文件名，而mode则指定了文件的读写权限。
+mknod是比较老的函数，而使用mkfifo函数更加简单和规范，所以建议在可能的情况下，尽量使用mkfifo而不是mknod。
+
+3、访问命名管道
+
+1)、打开FIFO文件
+与打开其他文件一样，FIFO文件也可以使用open调用来打开。注意，mkfifo函数只是创建一个FIFO文件，要使用命名管道还是将其打开。
+
+但是有两点要注意，
+1、就是程序不能以O_RDWR模式打开FIFO文件进行读写操作，而其行为也未明确定义，
+因为如一个管道以读/写方式打开，进程就会读回自己的输出，同时我们通常使用FIFO只是为了单向的数据传递。
+2)、就是传递给open调用的是FIFO的路径名，而不是正常的文件。
+
+打开FIFO文件通常有四种方式:
+open(const char *path, O_RDONLY);//1  
+open(const char *path, O_RDONLY | O_NONBLOCK);//2  
+open(const char *path, O_WRONLY);//3  
+open(const char *path, O_WRONLY | O_NONBLOCK);//4  
+在open函数的调用的第二个参数中，你看到一个陌生的选项O_NONBLOCK，选项O_NONBLOCK表示非阻塞，加上这个选项后，表示open调用是非阻塞的，如果没有这个选项，则表示open调用是阻塞的。
+open调用的阻塞是什么一回事呢？很简单，对于以只读方式（O_RDONLY）打开的FIFO文件，如果open调用是阻塞的（即第二个参数为O_RDONLY），
+除非有一个进程以写方式打开同一个FIFO，否则它不会返回;
+如果open调用是非阻塞的的（即第二个参数为O_RDONLY | O_NONBLOCK），则即使没有其他进程以写方式打开同一个FIFO文件，open调用将成功并立即返回。
+对于以只写方式（O_WRONLY）打开的FIFO文件，如果open调用是阻塞的（即第二个参数为O_WRONLY），
+open调用将被阻塞，直到有一个进程以只读方式打开同一个FIFO文件为止;
+如果open调用是非阻塞的（即第二个参数为O_WRONLY | O_NONBLOCK），open总会立即返回，但如果没有其他进程以只读方式打开同一个FIFO文件，open调用将返回-1，并且FIFO也不会被打开。
+
+fifowrite.c的源代码如下：
+
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <string.h>
+
+int main()
+{
+	const char *fifo_name = "/tmp/my_fifo";
+	int pipe_fd = -1;
+	int data_fd = -1;
+	int res = 0;
+	const int open_mode = O_WRONLY;
+	int bytes_sent = 0;
+	char buffer[PIPE_BUF + 1];
+
+	if(access(fifo_name, F_OK) == -1)
+	{
+		//管道文件不存在
+		//创建命名管道
+		res = mkfifo(fifo_name, 0777);
+		if(res != 0)
+		{
+			fprintf(stderr, "Could not create fifo %s\n", fifo_name);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	printf("Process %d opening FIFO O_WRONLY\n", getpid());
+	//以只写阻塞方式打开FIFO文件，以只读方式打开数据文件
+	pipe_fd = open(fifo_name, open_mode);
+	data_fd = open("Data.txt", O_RDONLY);
+	printf("Process %d result %d\n", getpid(), pipe_fd);
+
+	if(pipe_fd != -1)
+	{
+		int bytes_read = 0;
+		//向数据文件读取数据
+		bytes_read = read(data_fd, buffer, PIPE_BUF);
+		buffer[bytes_read] = '\0';
+		while(bytes_read > 0)
+		{
+			//向FIFO文件写数据
+			res = write(pipe_fd, buffer, bytes_read);
+			if(res == -1)
+			{
+				fprintf(stderr, "Write error on pipe\n");
+				exit(EXIT_FAILURE);
+			}
+			//累加写的字节数，并继续读取数据
+			bytes_sent += res;
+			bytes_read = read(data_fd, buffer, PIPE_BUF);
+			buffer[bytes_read] = '\0';
+		}
+		close(pipe_fd);
+		close(data_fd);
+	}
+	else
+		exit(EXIT_FAILURE);
+
+	printf("Process %d finished\n", getpid());
+	exit(EXIT_SUCCESS);
+}
+
+
+
+源文件fiforead.c的代码如下：
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <string.h>
+
+int main()
+{
+	const char *fifo_name = "/tmp/my_fifo";
+	int pipe_fd = -1;
+	int data_fd = -1;
+	int res = 0;
+	int open_mode = O_RDONLY;
+	char buffer[PIPE_BUF + 1];
+	int bytes_read = 0;
+	int bytes_write = 0;
+	//清空缓冲数组
+	memset(buffer, '\0', sizeof(buffer));
+
+	printf("Process %d opening FIFO O_RDONLY\n", getpid());
+	//以只读阻塞方式打开管道文件，注意与fifowrite.c文件中的FIFO同名
+	pipe_fd = open(fifo_name, open_mode);
+	//以只写方式创建保存数据的文件
+	data_fd = open("DataFormFIFO.txt", O_WRONLY|O_CREAT, 0644);
+	printf("Process %d result %d\n",getpid(), pipe_fd);
+
+	if(pipe_fd != -1)
+	{
+		do
+		{
+			//读取FIFO中的数据，并把它保存在文件DataFormFIFO.txt文件中
+			res = read(pipe_fd, buffer, PIPE_BUF);
+			bytes_write = write(data_fd, buffer, res);
+			bytes_read += res;
+		}while(res > 0);
+		close(pipe_fd);
+		close(data_fd);
+	}
+	else
+		exit(EXIT_FAILURE);
+
+	printf("Process %d finished, %d bytes read\n", getpid(), bytes_read);
+	exit(EXIT_SUCCESS);
+}
+
+
+
+两个程序都使用阻塞模式的FIFO，为了让大家更清楚地看清楚阻塞究竟是怎么一回事，首先我们运行fifowrite.exe，并把它放到后台去运行。
+这时调用jobs命令，可以看到它确实在后台运行着，过了5秒后，再调用jobs命令，可以看到进程fifowrite.exe还没有结束，它还在继续运行。
+因为fifowrite.exe进程的open调用是阻塞的，在fiforead.exe还没有运行时，也就没有其他的进程以读方式打开同一个FIFO，所以它就一直在等待，open被阻塞，没有返回。
+然后，当我们进程fiforead.exe运行时（为了查看性能，在time命令中运行），fifowrite.exe中的open调用返回，进程开始继续工作，然后结束进程。
+而fiforead.exe的open调用虽然也是阻塞模式，但是fifowrite.exe早已运行，即早有另一个进程以写方式打开同一个FIFO，所以open调用立即返回。
+
+4、命名管道的安全问题
+前面的例子是两个进程之间的通信问题，也就是说，一个进程向FIFO文件写数据，而另一个进程则在FIFO文件中读取数据。
+试想这样一个问题，只使用一个FIFO文件，如果有多个进程同时向同一个FIFO文件写数据，而只有一个读FIFO进程在同一个FIFO文件中读取数据时，
+会发生怎么样的情况呢，会发生数据块的相互交错是很正常的？而且个人认为多个不同进程向一个FIFO读进程发送数据是很普通的情况。
+
+为了解决这一问题，就是让写操作的原子化。怎样才能使写操作原子化呢？
+答案很简单，系统规定：在一个以O_WRONLY（即阻塞方式）打开的FIFO中， 如果写入的数据长度小于等待PIPE_BUF，或者写入全部字节，或者一个字节都不写入。
+如果所有的写请求都是发往一个阻塞的FIFO的，并且每个写记请求的数据长度小于等于PIPE_BUF字节，系统就可以确保数据决不会交错在一起。
+
+5、命名管道与匿名管道的对比
+使用匿名管道，则通信的进程之间需要一个父子关系，通信的两个进程一定是由一个共同的祖先进程启动。
+但是匿名管道没有上面说到的数据交叉的问题。
+
+与使用匿名管道相比，我们可以看到fifowrite.exe和fiforead.exe这两个进程是没有什么必然的联系的，
+如果硬要说他们具有某种联系，就只能说是它们都访问同一个FIFO文件。
+它解决了之前在匿名管道中出现的通信的两个进程一定是由一个共同的祖先进程启动的问题。
+但是为了数据的安全，我们很多时候要采用阻塞的FIFO，让写操作变成原子操作。
+
+6、消息队列与命名管道的比较
+
+消息队列跟命名管道有不少的相同之处，通过与命名管道一样，消息队列进行通信的进程可以是不相关的进程，同时它们都是通过发送和接收的方式来传递数据的。
+在命名管道中，发送数据用write，接收数据用read，则在消息队列中，发送数据用msgsnd，接收数据用msgrcv。而且它们对每个数据都有一个最大长度的限制。
+
+与命名管道相比，消息队列的优势在于
+1、消息队列也可以独立于发送和接收进程而存在，从而消除了在同步命名管道的打开和关闭时可能产生的困难。
+2、多个进程同时发送消息还可以避免命名管道的同步和阻塞问题，不需要由进程自己来提供同步方法。接收程序可以通过消息类型有选择地接收数据，而不是像命名管道中那样，只能默认地接收。
+
+
+
+九、linux进程间通信--共享内存
+
+1、什么是共享内存(shared memory)
+顾名思义，共享内存就是允许两个不相关的进程访问同一个逻辑内存。共享内存是在两个正在运行的进程之间共享和传递数据的一种非常有效的方式。
+不同进程之间共享的内存通常安排为同一段物理内存。进程可以将同一段共享内存连接到它们自己的地址空间中，所有进程都可以访问共享内存中的地址，就好像它们是由用C语言函数malloc分配的内存一样。
+而如果某个进程向共享内存写入数据，所做的改动将立即影响到可以访问同一段共享内存的任何其他进程。
+
+特别提醒：共享内存并未提供同步机制，也就是说，在第一个进程结束对共享内存的写操作之前，并无自动机制可以阻止第二个进程开始对它进行读取。
+所以我们通常需要用其他的机制来同步对共享内存的访问，例如前面说到的信号量。
+
+
+共享内存的使用与信号量一样，在Linux中也提供了一组函数接口用于使用共享内存，而且使用共享共存的接口还与信号量的非常相似，而且比使用信号量的接口来得简单。它们声明在头文件 sys/shm.h中。
+
+1、shmget函数
+该函数用来创建/获得共享内存，它的原型为：
+
+int shmget(key_t key, size_t size, int shmflg);  
+第一个参数，与信号量的semget函数一样，程序需要提供一个参数key（非0整数），
+它有效地为共享内存段命名，shmget函数成功时返回一个与key相关的共享内存标识符（非负整数），用于后续的共享内存函数。调用失败返回-1.
+
+不相关的进程可以通过该函数的返回值访问同一共享内存，它代表程序可能要使用的某个资源，程序对所有共享内存的访问都是间接的，
+程序先通过调用shmget函数并提供一个键，再由系统生成一个相应的共享内存标识符（shmget函数的返回值），只有shmget函数才直接使用信号量键，所有其他的信号量函数使用由semget函数返回的信号量标识符。
+
+第二个参数，size以字节为单位指定需要共享的内存容量
+
+第三个参数，shmflg是权限标志，它的作用与open函数的mode参数一样，如果要想在key标识的共享内存不存在时，创建它的话，可以与IPC_CREAT做或操作。
+共享内存的权限标志与文件的读写权限一样，举例来说，0644,它表示允许一个进程创建的共享内存被内存创建者所拥有的进程向共享内存读取和写入数据，同时其他用户创建的进程只能读取共享内存。
+
+2、shmat函数
+第一次创建完共享内存时，它还不能被任何进程访问，shmat函数的作用就是用来启动对该共享内存的访问，并把共享内存连接到当前进程的地址空间。它的原型如下：
+
+void *shmat(int shm_id, const void *shm_addr, int shmflg);  
+第一个参数，shm_id是由shmget函数返回的共享内存标识。
+第二个参数，shm_addr指定共享内存连接到当前进程中的地址位置，通常为空，表示让系统来选择共享内存的地址。
+第三个参数，shm_flg是一组标志位，通常为0。
+
+调用成功时返回一个指向共享内存第一个字节的指针，如果调用失败返回-1.
+
+3、shmdt函数
+该函数用于将共享内存从当前进程中分离。注意，将共享内存分离并不是删除它，只是使该共享内存对当前进程不再可用。它的原型如下：
+
+int shmdt(const void *shmaddr);  
+参数shmaddr是shmat函数返回的地址指针，调用成功时返回0，失败时返回-1.
+
+4、shmctl函数
+与信号量的semctl函数一样，用来控制共享内存，它的原型如下：
+
+int shmctl(int shm_id, int command, struct shmid_ds *buf);  
+第一个参数，shm_id是shmget函数返回的共享内存标识符。
+
+第二个参数，command是要采取的操作，它可以取下面的三个值 ：
+    IPC_STAT：把shmid_ds结构中的数据设置为共享内存的当前关联值，即用共享内存的当前关联值覆盖shmid_ds的值。
+    IPC_SET：如果进程有足够的权限，就把共享内存的当前关联值设置为shmid_ds结构中给出的值
+    IPC_RMID：删除共享内存段
+
+第三个参数，buf是一个结构指针，它指向共享内存模式和访问权限的结构。
+shmid_ds结构至少包括以下成员：
+
+struct shmid_ds  
+{  
+    uid_t shm_perm.uid;  
+    uid_t shm_perm.gid;  
+    mode_t shm_perm.mode;  
+};  
+
+示例:
+公共代码
+#ifndef _SHMDATA_H_HEADER
+#define _SHMDATA_H_HEADER
+
+#define TEXT_SZ 2048
+
+struct shared_use_st
+{
+	int written;//作为一个标志，非0：表示可读，0表示可写
+	char text[TEXT_SZ];//记录写入和读取的文本
+};
+
+#endi
+
+read
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/shm.h>
+#include "shmdata.h"
+
+int main()
+{
+	int running = 1;//程序是否继续运行的标志
+	void *shm = NULL;//分配的共享内存的原始首地址
+	struct shared_use_st *shared;//指向shm
+	int shmid;//共享内存标识符
+	//创建共享内存
+	shmid = shmget((key_t)1234, sizeof(struct shared_use_st), 0666|IPC_CREAT);
+	if(shmid == -1)
+	{
+		fprintf(stderr, "shmget failed\n");
+		exit(EXIT_FAILURE);
+	}
+	//将共享内存连接到当前进程的地址空间
+	shm = shmat(shmid, 0, 0);
+	if(shm == (void*)-1)
+	{
+		fprintf(stderr, "shmat failed\n");
+		exit(EXIT_FAILURE);
+	}
+	printf("\nMemory attached at %X\n", (int)shm);
+	//设置共享内存
+	shared = (struct shared_use_st*)shm;
+	shared->written = 0;
+	while(running)//读取共享内存中的数据
+	{
+		//没有进程向共享内存定数据有数据可读取
+		if(shared->written != 0)
+		{
+			printf("You wrote: %s", shared->text);
+			sleep(rand() % 3);
+			//读取完数据，设置written使共享内存段可写
+			shared->written = 0;
+			//输入了end，退出循环（程序）
+			if(strncmp(shared->text, "end", 3) == 0)
+				running = 0;
+		}
+		else//有其他进程在写数据，不能读取数据
+			sleep(1);
+	}
+	//把共享内存从当前进程中分离
+	if(shmdt(shm) == -1)
+	{
+		fprintf(stderr, "shmdt failed\n");
+		exit(EXIT_FAILURE);
+	}
+	//删除共享内存
+	if(shmctl(shmid, IPC_RMID, 0) == -1)
+	{
+		fprintf(stderr, "shmctl(IPC_RMID) failed\n");
+		exit(EXIT_FAILURE);
+	}
+	exit(EXIT_SUCCESS);
+}
+
+write
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/shm.h>
+#include "shmdata.h"
+
+int main()
+{
+	int running = 1;
+	void *shm = NULL;
+	struct shared_use_st *shared = NULL;
+	char buffer[BUFSIZ + 1];//用于保存输入的文本
+	int shmid;
+	//创建共享内存
+	shmid = shmget((key_t)1234, sizeof(struct shared_use_st), 0666|IPC_CREAT);
+	if(shmid == -1)
+	{
+		fprintf(stderr, "shmget failed\n");
+		exit(EXIT_FAILURE);
+	}
+	//将共享内存连接到当前进程的地址空间
+	shm = shmat(shmid, (void*)0, 0);
+	if(shm == (void*)-1)
+	{
+		fprintf(stderr, "shmat failed\n");
+		exit(EXIT_FAILURE);
+	}
+	printf("Memory attached at %X\n", (int)shm);
+	//设置共享内存
+	shared = (struct shared_use_st*)shm;
+	while(running)//向共享内存中写数据
+	{
+		//数据还没有被读取，则等待数据被读取,不能向共享内存中写入文本
+		while(shared->written == 1)
+		{
+			sleep(1);
+			printf("Waiting...\n");
+		}
+		//向共享内存中写入数据
+		printf("Enter some text: ");
+		fgets(buffer, BUFSIZ, stdin);
+		strncpy(shared->text, buffer, TEXT_SZ);
+		//写完数据，设置written使共享内存段可读
+		shared->written = 1;
+		//输入了end，退出循环（程序）
+		if(strncmp(buffer, "end", 3) == 0)
+			running = 0;
+	}
+	//把共享内存从当前进程中分离
+	if(shmdt(shm) == -1)
+	{
+		fprintf(stderr, "shmdt failed\n");
+		exit(EXIT_FAILURE);
+	}
+	sleep(2);
+	exit(EXIT_SUCCESS);
+}
+
+5、关于前面的例子的安全性讨论
+这个程序是不安全的，当有多个程序同时向共享内存中读写数据时，问题就会出现。
+可能你会认为，可以改变一下written的使用方式，例如，只有当written为0时进程才可以向共享内存写入数据，而当一个进程只有在written不为0时才能对其进行读取，同时把written进行加1操作，读取完后进行减1操作。
+这就有点像文件锁中的读写锁的功能。咋看之下，它似乎能行得通。但是这都不是原子操作，所以这种做法是行不能的。
+试想当written为0时，如果有两个进程同时访问共享内存，它们就会发现written为0，于是两个进程都对其进行写操作，显然不行。
+当written为1时，有两个进程同时对共享内存进行读操作时也是如些，当这两个进程都读取完是，written就变成了-1.
+
+要想让程序安全地执行，就要有一种进程同步的进制，保证在进入临界区的操作是原子操作。例如，可以使用前面所讲的信号量来进行进程的同步。因为信号量的操作都是原子性的。
+
+6、使用共享内存的优缺点
+1)、优点：我们可以看到使用共享内存进行进程间的通信真的是非常方便，而且函数的接口也简单，数据的共享还使进程间的数据不用传送，而是直接访问内存，也加快了程序的效率。同时，它也不像匿名管道那样要求通信的进程有一定的父子关系。
+
+2)、缺点：共享内存没有提供同步的机制，这使得我们在使用共享内存进行进程间通信时，往往要借助其他的手段来进行进程间的同步工作。
+
+
+
+
+十、linux进程间通信--套接字socket-TCP/UDP
+
+示例:
+
+server
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	int server_sockfd = -1;
+	int client_sockfd = -1;
+	int client_len = 0;
+	struct sockaddr_in server_addr;
+	struct sockaddr_in client_addr;
+	//创建流套接字
+	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	//设置服务器接收的连接地址和监听的端口
+	server_addr.sin_family = AF_INET;//指定网络套接字
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);//接受所有IP地址的连接
+	server_addr.sin_port = htons(9736);//绑定到9736端口
+	//绑定（命名）套接字
+	bind(server_sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+	//创建套接字队列，监听套接字
+	listen(server_sockfd, 5);
+	//忽略子进程停止或退出信号
+	signal(SIGCHLD, SIG_IGN);
+	
+	while(1)
+	{
+		char ch = '\0';
+		client_len = sizeof(client_addr);
+		printf("Server waiting\n");
+		//接受连接，创建新的套接字
+		client_sockfd = accept(server_sockfd, (struct sockaddr*)&client_addr, &client_len);
+
+		if(fork() == 0)
+		{
+			//子进程中，读取客户端发过来的信息，处理信息，再发送给客户端
+			read(client_sockfd, &ch, 1);
+			sleep(5);
+			ch++;
+			write(client_sockfd, &ch, 1);
+			close(client_sockfd);
+			exit(0);
+		}
+		else
+		{
+			//父进程中，关闭套接字
+			close(client_sockfd);
+		}
+	}
+}
+
+client
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	int sockfd = -1;
+	int len = 0;
+	struct sockaddr_in address;
+	int result;
+	char ch = 'A';
+	//创建流套接字
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	//设置要连接的服务器的信息
+	address.sin_family = AF_INET;//使用网络套接字
+	address.sin_addr.s_addr = inet_addr("127.0.0.1");//服务器地址
+	address.sin_port = htons(9736);//服务器所监听的端口
+	len = sizeof(address);
+	//连接到服务器
+	result = connect(sockfd, (struct sockaddr*)&address, len);
+
+	if(result == -1)
+	{
+		perror("ops:client\n");
+		exit(1);
+	}
+	//发送请求给服务器
+	write(sockfd, &ch, 1);
+	//从服务器获取数据
+	read(sockfd, &ch, 1);
+	printf("char form server = %c\n", ch);
+	close(sockfd);
+	exit(0);
+}
+
+
+
+server
+
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+
+
+int main()
+{
+	int server_sockfd = -1;
+	int server_len = 0;
+	int client_len = 0;
+	char buffer[512];
+	int result = 0;
+	struct sockaddr_in server_addr;
+	struct sockaddr_in client_addr;
+	//创建数据报套接字
+	server_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	//设置监听IP端口
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	server_addr.sin_port = htons(9739);
+	server_len = sizeof(server_addr);
+	//绑定（命名）套接字
+	bind(server_sockfd, (struct sockaddr*)&server_addr, server_len);
+	//忽略子进程停止或退出信号
+	signal(SIGCHLD, SIG_IGN);
+
+
+	while(1)
+	{	
+		//接收数据，用client_addr来储存数据来源程序的IP端口
+		result = recvfrom(server_sockfd, buffer, sizeof(buffer), 0, 
+				(struct sockaddr*)&client_addr, &client_len);
+		if(fork() == 0)
+		{
+			//利用子进程来处理数据
+			buffer[0] += 'a' - 'A';
+			sleep(5);
+			//发送处理后的数据
+			sendto(server_sockfd, buffer, sizeof(buffer),0 , 
+				(struct sockaddr*)&client_addr, client_len);
+			printf("%c\n", buffer[0]);
+			//注意，一定要关闭子进程，否则程序运行会不正常 
+			exit(0);
+		}
+	}
+	//关闭套接字
+	close(server_sockfd);
+}
+
+
+client
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+int main(int agrc, char *argv[])
+{
+	struct sockaddr_in server_addr;
+	int server_len = 0;
+	int sockfd = -1;
+	int result = 0;
+	char c = 'A';
+	//取第一个参数的第一个字符
+	if(agrc > 1)
+		c = argv[1][0];
+	//创建数据报套接字
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	//设置服务器IP端口
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	server_addr.sin_port = htons(9739);
+	server_len = sizeof(server_addr);
+	//向服务器发送数据
+	sendto(sockfd, &c, sizeof(char), 0, 
+		(struct sockaddr*)&server_addr, server_len);
+	//接收服务器处理后发送过来的数据，由于不关心数据来源，所以把后两个参数设为0
+	recvfrom(sockfd, &c, sizeof(char), 0, 0, 0);
+	printf("char from server = %c\n", c);
+	//关闭套接字
+	close(sockfd);
+	exit(0); 
+}
+
+十一、linux线程间通信--信号量
+
+线程同步是控制线程执行和访问临界区域的方法
+
+信号量的接口和使用
+
+信号量的函数都以sem_开头，线程中使用的基本信号量函数有4个，它们都声明在头文件semaphore.h中。
+
+1、sem_init函数
+该函数用于创建信号量，其原型如下：
+
+int sem_init(sem_t *sem, int pshared， unsigned int value);  
+该函数初始化由sem指向的信号对象，设置它的共享选项，并给它一个初始的整数值。
+pshared控制信号量的类型，如果其值为0，就表示这个信号量是当前进程的局部信号量，否则信号量就可以在多个进程之间共享。
+value为sem的初始值。调用成功时返回0，失败返回-1.
+
+2、sem_wait函数
+该函数用于以原子操作的方式将信号量的值减1。原子操作就是，如果两个线程企图同时给一个信号量加1或减1，它们之间不会互相干扰。它的原型如下：
+
+int sem_wait(sem_t *sem);  
+sem指向的对象是由sem_init调用初始化的信号量。调用成功时返回0，失败返回-1.
+
+3、sem_post函数
+该函数用于以原子操作的方式将信号量的值加1。它的原型如下：
+
+int sem_post(sem_t *sem);  
+与sem_wait一样，sem指向的对象是由sem_init调用初始化的信号量。调用成功时返回0，失败返回-1.
+
+4、sem_destroy函数
+该函数用于对用完的信号量的清理。它的原型如下：
+
+int sem_destroy(sem_t *sem);  
+成功时返回0，失败时返回-1.
+
+
+5、sem_getvalue函数
+该函数用于获取信号量的值,它的原型如下：
+sem_getvalue(sem_t *restrict, int *restrict);
+成功时返回0，失败时返回-1.
+如果有一个或多个线程当前正在使用 sem_wait 等待信号量,sem_getvalue函数将不可靠。
+
+如果要获取信号量的值,可参见如下:
+sem_wait(&text_sem);
+sem_getvalue(&text_sem,&value);
+if(value == 0)
+{
+	do something。。。
+}
+
+
+6、sem_trywait函数
+int sem_trywait(sem_t *sem)
+函数 sem_trywait()和sem_wait()有一点不同，即如果信号量的当前值为0，则返回错误而不是阻塞调用。错误值errno设置为EAGAIN。sem_trywait()其实是sem_wait()的非阻塞版本。
+
+7、sem_timedwait函数
+int sem_timedwait(sem_t *restrict, const struct timespec *abs_timeout);
+这个abs_timeout是UTC时间戳。
+我们可以这样使用它:
+
+int sem_wait_timeout(sem_t *psem, int32 sec,int32 nsec)
+{
+    struct timespec ts;
+
+    if ( clock_gettime( CLOCK_REALTIME,&ts ) < 0 )
+        return -1;
+
+    ts.tv_sec  += sec;
+    ts.tv_nsec += nsec;
+
+    //#define NSECTOSEC    1000000000 
+    ts.tv_sec += ts.tv_nsec/NSECTOSEC; //Nanoseconds [0 .. 999999999]
+    ts.tv_nsec = ts.tv_nsec%NSECTOSEC;
+
+    return sem_timedwait(psem,&ts );
+}
+
+
+
+十二、linux线程间通信--互斥量
+
+
+1、什么是互斥量
+
+互斥量是另一种用于多线程中的同步访问方法，它允许程序锁住某个对象，使得每次只能有一个线程访问它。为了控制对关键代码的访问，必须在进入这段代码之前锁住一个互斥量，然后在完成操作之后解锁。
+
+2、互斥量的函数的使用
+
+它们的定义与使用信号量的函数非常相似，它们的定义如下：
+
+#include <pthread.h>  
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr);  
+  
+int pthread_mutex_lock(pthread_mutex_t *mutex);  
+  
+int pthread_mutex_unlock(pthread_mutex_t *mutex);  
+  
+int pthread_mutex_destroy(pthread_mutex_t *mutex);  
+它们的意义就如它们的名字所示的那样，成功时返回0，失败时返回错误代码，它们并不设置errno。
+
+pthread_mutex_init函数中的参数mutexattr指定互斥量的属性，在这里我们并不关心互斥量的属性，所以把它设置为NULL，使用默认属性即可。
+同样的，pthread_mutex_lock和pthread_mutex_unlock都是原子操作，
+如果一个线程调用pthread_mutex_lock试图锁住互斥量，而该互斥量，又被其他线程锁住（占用），则该线程的pthread_mutex_lock调用就会阻塞，直到其他线程对该互斥量进行解锁，该线程才能获得该互斥量，pthread_mutex_lock调用才会返回。
+
+注意，使用互斥量的默认属性，如果程序试图对一个已经加锁的互斥量调用pthread_mutex_lock，程序就会阻塞，而又因为拥有互斥量的这个线程正是现在被阻塞的线程，所以这个互斥量就永远不会被解锁，
+也就是说，程序就会进入死锁的状态。在使用时要多加注意，确保在同一个线程中，对加锁的互斥再次进行加锁前要对其进行解锁。
+
+
+#include <unistd.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+
+//声明线程函数和互斥量
+void* thread_func(void *msg);
+pthread_mutex_t mutex;
+
+
+#define MSG_SIZE 512
+
+
+int main()
+{
+	int res = -1;
+	pthread_t thread;
+	void *thread_result = NULL;
+	char msg[MSG_SIZE] = {'\0'};
+	//初始化互斥量，使用默认的互斥量属性
+	res = pthread_mutex_init(&mutex, NULL);
+	if(res != 0)
+	{
+		perror("pthread_mutex_init failed\n");
+		exit(EXIT_FAILURE);
+	}
+	//创建子线程，并把msg作为线程函数的参数传递给thread_func
+	res = pthread_create(&thread, NULL, thread_func, msg);
+	if(res != 0)
+	{
+		perror("pthread_create failed\n");
+		exit(EXIT_FAILURE);
+	}
+	//输入字符串，以串‘end’结束
+	printf("Input some test. Enter 'end' to finish\n");
+	//把互斥量mutex加锁，以确保同一时间只有该线程可以访问msg中的数据
+	pthread_mutex_lock(&mutex);
+	while(strcmp("end\n", msg) != 0)
+	{
+		if(strncmp("TEST", msg, 4) == 0)
+		{
+			strcpy(msg, "copy_data\n");
+		}
+		else
+		{
+			fgets(msg, MSG_SIZE, stdin);
+		}
+		//把互斥量mutex解锁，让其他的线程可以访问msg中的数据
+		pthread_mutex_unlock(&mutex);
+		sleep(1);//休眠1秒再继续循环，让其他线程有执行的机会
+		pthread_mutex_lock(&mutex);
+	}
+	pthread_mutex_unlock(&mutex);
+	printf("\nWaiting for thread finish...\n");
+	//等待子线程结束
+	res = pthread_join(thread, &thread_result);
+	if(res != 0)
+	{
+		perror("pthread_join failed\n");
+		exit(EXIT_FAILURE);
+	}
+	printf("Thread joined\n");
+	//清理互斥量
+	pthread_mutex_destroy(&mutex);
+	exit(EXIT_SUCCESS);
+}
+void* thread_func(void *msg)
+{
+	int i = 0;
+	char *ptr = msg;
+	sleep(1);
+	//把互斥量mutex加锁，以确保同一时间只有该线程可以访问msg中的数据
+	pthread_mutex_lock(&mutex);
+	while(strcmp("end\n", msg) != 0)
+	{
+		//把小写字母变成大写
+		for(i = 0; ptr[i] != '\0'; ++i)
+		{
+			if(ptr[i] >= 'a' && ptr[i] <='z')
+			{
+				ptr[i] -= 'a' - 'A';
+			}
+		}
+		printf("You input %d characters\n", i-1);
+		printf("To uppercase: %s\n", ptr);
+		//把互斥量mutex解锁，让其他的线程可以访问msg中的数据
+		pthread_mutex_unlock(&mutex);
+		sleep(1);//休眠1秒再继续循环，让其他线程有执行的机会
+		pthread_mutex_lock(&mutex);
+	}
+	pthread_mutex_unlock(&mutex);
+	//退出线程
+	pthread_exit(NULL);
+}
+
+
+Linux Shell 之 对文件中的行、单词、字符进行迭代
+
+在进行文本文件进行处理时，对文件件中的行、单词、字符进行迭代和遍历是非常常用的操作。
+而将一个简单的循环用于迭代，再加上来自stdin或文件的重定向，这就是对文件中的行、单词、和字符进行迭代的基本方法。
+
+1、迭代文中的每一行
+使用while循环从标准输入中读取，因为要在标准输入中读取，就要对文件进行重定向，使它重定向到stdin中，代码如下：
+
+while read line;  
+do  
+echo $line;  
+done < file.txt  
+代码的第一行从stdin中读取一行，而stdin的来源为file.txt，因为最后一行用数据流重定向，把file.txt的内容重定向到了stdin。
+
+2、迭代一行中的每一个单词
+我们可以用for循环来迭代一行中的单词，代码如下：
+
+read line;  
+for word in $line;  
+do  
+echo $word;  
+done  
+代码的第一行，从stdin中读取一行，然后用for循环迭代一行中的所有单词，并输出，真是非常简单实用。
+
+3、迭代一个单词中的每一个字符
+从单词中迭代每一个字符，可以说是这三种迭代中最困难的一种，因为从单词中提取字符需要一定的技巧，其方法如下：
+
+利用for循环对变量i进行迭代，迭代范围从0到字符的长度-1。那如何取出单词中的字符呢？
+我们可以借助一个特殊的表达式来取出单词中的第i个字母，${string:start_position:count_of_characters}，
+它的意思是，返回字符串string中，从第start_position起的count_of_characters个字符组成的字串，
+对于迭代一个单词中的第一个字符，当然是从string的第i个字符起，返回长度为1的子串，这就是子串提取技术。所以代码如下：
+
+for((i=0; i<${#word}; ++i))  
+do  
+echo ${word:i:1};  
+done  
+注：${#word}返回变量word的值的长度，即单词的长度。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,95 @@
+uboot nand配置
+
+1、配置nuc970_evb.h
+参见nuc970_evb.h
+
+
+2、nand初始化流程
+
+uboot在进入main_loop之前执行board初始化
+在board初始化时会调用nand.c中的nand_init()-->board_nand_init()[nuc970_nand.c中]
+
+函数内部会调用nand_scan_ident()函数
+
+函数原型如下:
+
+int nand_scan_ident(struct mtd_info *mtd, int maxchips,
+		    const struct nand_flash_dev *table)
+{
+	int i, busw, nand_maf_id, nand_dev_id;
+	struct nand_chip *chip = mtd->priv;
+	const struct nand_flash_dev *type;
+
+	/* Get buswidth to select the correct functions */
+	busw = chip->options & NAND_BUSWIDTH_16;
+	/* Set the default functions */
+	nand_set_defaults(chip, busw);
+
+	/* Read the flash type */
+	type = nand_get_flash_type(mtd, chip, busw,
+				&nand_maf_id, &nand_dev_id, table);
+				
+	/*
+	选中芯片，才能对其操作.
+	发送ReadID的命令：0x90，去取得芯片的ID信息.
+	根据datasheet中的定义，第一个字节，简称byte1，是生产厂商的信息，不同的厂商，对应不同的数字。而byte2是芯片类型，不同的nand flash芯片，对应不同的设备ID，也就是一个字节的数字.
+	如果这个函数出现问题,需要检查nand驱动问题,时序问题。
+	*/
+
+	printf("mid=0x%x, did=0x%x\n",nand_maf_id ,nand_dev_id); //打印板子上nand的厂商ID,芯片ID
+
+	if (IS_ERR(type)) {
+#ifndef CONFIG_SYS_NAND_QUIET_TEST
+		printk(KERN_WARNING "No NAND device found!!!\n");
+#endif
+		chip->select_chip(mtd, -1);
+		return PTR_ERR(type);
+	}
+
+	/* Check for a chip array */
+	for (i = 1; i < maxchips; i++) {
+		chip->select_chip(mtd, i);
+		/* See comment in nand_get_flash_type for reset */
+		chip->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+		/* Send the command for reading device ID */
+		chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
+		/* Read manufacturer and device IDs */
+		if (nand_maf_id != chip->read_byte(mtd) ||
+		    nand_dev_id != chip->read_byte(mtd))
+			break;
+	}
+//#ifdef DEBUG
+	if (i > 1)
+		printk(KERN_INFO "%d NAND chips detected\n", i);
+//#endif
+
+	/* Store the number of chips and calc total size for mtd */
+	chip->numchips = i;
+	mtd->size = i * chip->chipsize;
+
+	return 0;
+}
+
+
+
+-->   nand_init_chip()//根据配置（nand的最大个数）扫描nand,并注册
+
+
+3、编译
+
+原厂BSP+NAND版本：
+make O=./build/ distclean
+make O=./build/ nuc970_config
+make O=./build/ all
+
+
+4、下载
+
+会生成 uboot-spl.bin 【下载到内部16kROM中,主要工作为uboot的第一阶段】
+
+       默认下载到 执行位置 200 处,如需修改,编译前修改mkconfig可以改变其地址。
+	   
+       uboot-bin	 【下载到nand】
+	   
+	   选择data,偏移100000,下载。。【0--100000为环境参数区】
+	   

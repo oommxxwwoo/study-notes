@@ -1,0 +1,52 @@
+
+config interface 'loopback'
+	option ifname 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+
+config interface 'eth0mode'
+	option eth0_mode 'wan'
+	option proto 'static'
+	option ipaddr '192.168.1.8'
+	option netmask '255.255.255.0'
+	option gateway '192.168.1.1'
+	option dns '208.67.222.222'
+	option dns2 '8.8.8.8'
+	
+config interface 'lan'
+	option proto 'static'
+	option ipaddr '192.168.1.8'
+	option netmask '255.255.255.0'
+	option gateway '192.168.1.1'
+	
+	option dhcps_enabled '1'
+	option start '192.168.10.100'
+	option end '192.168.10.200'
+	option interface 'br0'
+	option max_leases '100'
+	option subnet '255.255.255.0'
+	option router '192.168.10.1'
+	option domain 'local'
+	option lease '864000'
+	
+	option dns '208.67.222.222'
+	option dns2 '8.8.8.8'
+	option macaddr 'D8:B0:4C:00:00:01'
+	
+config interface 'pptp'
+	option enabled '0'
+	option serveraddr ' '
+	option username 'testvpn'
+	option password 'testvpn'
+	option dataencrypt 'require-mppe-128'
+	option auth 'noauth'
+	option lcpecho '300'
+	option mtu '1500'
+
+config interface 'gre'
+	option enabled '0'
+	option tunnelname 'gre1'
+	option iftype 'static' 
+

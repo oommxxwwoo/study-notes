@@ -1,0 +1,28 @@
+1、在配置文件中添加对应的宏
+	例:	在/include/configs/nuc970_evb.h中添加 #define CONFIG_CMD_MYLED
+
+2、在common目录下创建对应的cmd_myled.c文件,包含command.h,并实现do_led()函数和U_BOOT_CMD结构体
+
+	例:
+	
+	#include <common.h>
+	#include <config.h>
+	#include <command.h>
+
+	#if 1
+	#include <asm-generic/gpio.h>
+	#include "../drivers/gpio/nuc970_gpio.h"
+	int do_led (cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
+	{
+
+	}
+
+	U_BOOT_CMD(
+		myled, 3, 1, do_led,
+		"[LED][on|off]",
+		"[led_name] [on|off] sets or clears led(s)"
+	);
+
+
+3、修改common/Makefile文件，在#command下添加相应命令
+	例:	COBJS-$(CONFIG_CMD_MYBMP) += cmd_myled.o

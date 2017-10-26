@@ -1,0 +1,554 @@
+
+ubuntu版本ubuntu-14.04.5-desktop-i386.iso 下载地址：http://releases.ubuntu.com/trusty/
+
+查看
+uname -i 查看ubuntu 是32位还是64位 i686/i386为32位机、x86-64则为64位机
+uname -r 查看ubuntu内核版本
+
+
+准备工作：
+1.ctrl + alt + t 打开terminal终端,并lock to launcher 到左侧 
+
+1.从System Settings->Software&Updates->Ubuntu Software修改更新源/或者 sudo gedit /etc/apt/sources.list
+更新一下可用的软件库 sudo apt-get update
+
+
+2.Ubuntu 在文件夹内右键打开终端：
+	sudo apt-get install nautilus-open-terminal
+
+3.ubuntu14.04上安装samba，实现windows共享文件方法:
+	1).安装samba程序
+	sudo apt-get install samba
+
+	2).修改配置文件: sudo gedit /etc/samba/smb.conf
+	在其最后添加
+	[share]  
+		path = /home/user/share  
+		available = yes  
+		browseable = yes  
+		public = yes  
+		writable = yes 
+		
+	3).创建共享目录	
+	
+		sudo mkdir ~/share  
+		sudo chmod 777 ~/share 
+
+
+	4).创建samba帐户
+		sudo touch /etc/samba/smbpasswd  
+		sudo smbpasswd -a user
+		
+		特别说明:创建samba帐户需要先添加新用户
+			sudo adduser blue  添加用户
+			sudo userdel -r blue    删除用户
+			 
+			sudo smbpasswd -a wangbin 添加Samba账户
+			sudo   smbpasswd -x username删除Samba账户
+
+	5).重启samba服务器
+	sudo service smbd restart
+	sudo service nmbd restart
+	
+	命令里 ps -aux  ｜ grep xxx 是查看某个进程或者服务是否存在。
+	sudo ps -e |grep smbd  查询服务
+	其中 ‘|’ 表示管道符,它将管道左边的输出,变为管道右边的输入
+	grep命令为文本搜索工具,它将满足条件的表达式信息打印出来
+	
+	6).添加网络磁盘\\192.168.0.103,输入用户名和密码后，即可访问share目录。
+	
+	ps : 
+		linux下修改ip地址的方法ifconfig eth0 192.168.0.103/或者在system setting - > Network wired options ipv4 setting mannul(手动) 
+		windows下解决 samba不允许一个用户使用一个以上用户名与一个服务器或共享资源的多重连接 cmd 打开终端输入 net use * /del /y
+	
+
+	
+安装调试原厂的BSP：
+
+1.将原厂BSP资料包放入linux放入linux虚拟机【可使用samba服务共享的方式、ftp方式、复制方式等】,将其放入共享文件内,方便windows/ubuntu修改
+
+  1).ftp方式需要 ubuntu开启ftp服务,开启方法如下:
+  
+      安装ftp服务
+	  sudo apt-get install vsftpd
+	  
+	  配置ftp
+	  sudo gedit /etc/vsftpd.conf 去掉#
+	  #local_ennable=YES
+	  #write_ennable=YES
+	  表示允许本地用户登录/允许上传文件
+	  
+	  重新启动ftp服务
+	  sudo service vsftpd restart 
+	  
+	  windows下使用ftp工具进行文件传输,ftp端口默认21
+  
+
+2.解压nuc970bsp-release-20151111.zip  --> BSP ,解压 nuc970bsp.tar.gz
+
+  
+    有可能用到的命令：
+
+	1).zip格式文件需要zip命令支持,在命令行输入 sudo apt-get install zip ;或者sudo apt-get install 7zip
+	
+		可以使用下列的命令压缩一个目录：
+		zip -r xxx.zip directory_to_compress
+		下面是如果解压一个zip文档：
+		unzip xxx.zip
+
+  
+  
+    2).使用tar命令解压nuc970bsp.tar.gz  ==>   sudo tar zxvf nuc970bsp.tar.gz
+  
+  
+  
+3.补齐命令
+
+   有些是必须的,可以使开发过程更加顺利
+   sudo apt-get install patch  //patch用来打补丁的工具
+   sudo apt-get install libc6-dev //libc6-dev交叉编译器需要链接的32位函数库(i386版本)
+   sudo apt-get install libncurses5-dev //内核界面需要的链接库
+   sudo apt-get install cutecom //串口助手工具
+
+  
+  
+4.安装bsp
+  
+    找到nuc970bsp-release-20151111/BSP/,运行脚本sudo ./install.sh进行安装
+    可参照《NUC970 Linux BSP 使用手冊.pdf》的2.5章节 “2.5  BSP 安裝步驟”
+    如果用的是64位ubuntu的话，需要安装32位的库文件：sudo apt-get install lib32z1 lib32ncurses5 lib32bz2-1.0
+    还需要安装的库文件：sudo apt-get install ncurses-dev
+	安装完成可在nuc970bsp内看到applications  image  linux-3.10.x  rootfs  uboot文件夹
+	
+
+编译u-boot
+
+
+   1).在windows中使用source insight 导入uboot,在windows中修改源代码【使用samba服务共享的方式】
+   如果遇到修改权限问题可使用sudo chmod -R 777 /BSP 命令 。 递归修改所有文件的权限。
+   
+   2).修改配置文件
+   
+		uboot/include/configs/nuc970_evb.h中配置uboot的Flash选项,评估板无nand
+		支持SPI Flash，不支持NAND Flash：
+		#define CONFIG_SYS_USE_SPIFLASH
+		//#define CONFIG_SYS_USE_NANDFLASH      不用nand flash
+		//#define CONFIG_ENV_IS_IN_NAND         环境变量不放在nand flash
+		#define CONFIG_ENV_IS_IN_SPI_FLASH
+
+		注释掉多余flash芯片型号，只保留用的到的型号：
+		//#define CONFIG_SPI_FLASH_MACRONIX		1
+		#define CONFIG_SPI_FLASH_WINBOND		1
+		//#define CONFIG_SPI_FLASH_EON			1
+
+		修改环境变量文件的存储位置和大小：
+		#define CONFIG_ENV_OFFSET       0x40000
+		#define CONFIG_ENV_SIZE         0x10000
+		#define CONFIG_ENV_SECT_SIZE    0x10000
+
+		取消对MMC的支持if 1改为if 0
+		
+		新增
+		
+			1)在文件uboot/include/configs/nuc970_evb.h中
+			增加 #define CONFIG_SPI_FLASH_GIGADEVICE	1
+			注释 //#define CONFIG_SPI_FLASH_WINBOND		1
+			
+			2)在uboot/drivers/mtd/spi/spi_flash.c添加要支持flash信息
+			flashes[] = {
+				#ifdef CONFIG_SPI_FLASH_GIGADEVICE
+				{ 0, 0xc8, spi_flash_probe_gigadevice, },
+				#endif
+			
+			3)在uboot/drivers/mtd/spi/增加gigadevice.c(参考winbond.c)
+			4)在uboot/drivers/mtd/spi/Makefile里增加编译项：COBJS-$(CONFIG_SPI_FLASH_GIGADEVICE)	+= gigadevice.o
+
+		
+   3).安装gcc-arm-linux交叉编译环境
+		
+		安装gcc-arm-linux、g++(可以不装g++)
+		sudo apt-get install gcc-arm-linux-gnueabihf
+		sudo apt-get install g++-arm-linux-gnueabihf 
+		卸载
+		sudo apt-get remove gcc-arm-linux-gnueabihf 
+		sudo apt-get remove g++-arm-linux-gnueabihf 
+
+
+   4).编译u-boot
+   
+		原厂BSP+SPI版本：
+		make O=./build/ distclean
+		make O=./build/ nuc970_nonand_config
+		make O=./build/ all
+		
+		原厂BSP+NAND版本：
+		make O=./build/ distclean
+		make O=./build/ nuc970_config
+		make O=./build/ all
+	
+
+	
+		
+linux内核编译
+
+   1).配置内核
+   
+	恢复到972默认配置：make nuc972_defconfig
+	打开内核配置界面：make menuconfig
+	可参考用户手册，做基本设置
+
+    	//支持模块挂载和卸载
+	[*] Enable loadable module support --->
+		[*] Module unloading
+	
+	//开机命令设置（不使用RAM文件系统）
+	General setup --->
+		[ ] Initial RAM filesystem and RAM disk (initramfs/initrd) support
+	
+	Boot options  --->
+		(mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=squashfs root=/dev/mtdblock6) Default kernel command string 
+		Kernel command line type (Use bootloader arguments if available) --->
+	
+	//网络功能设置
+	[*] Networking support ---> 
+			Networking options ---> 
+				<*> Packet socket
+				<*>   Packet: sockets monitoring interface 
+				<*>Unix domain sockets
+				<*>   UNIX: socket monitoring interface
+				[*] TCP/IP networking
+				[*]   IP: advanced router
+				[*]IP:kernel level autoconfiguration
+				[*]  IP:DHCP support
+				[*]Network packet filtering framework(Netfilter) -->
+			
+	//无线设置
+	[*] Networking support --->
+		[*]Wireless --->
+			<*>cfg80211 - wireless configuration API 
+			[*]cfg80211 wireless extensions compatibility 
+			
+	Device Drivers  --->
+		[*]Network device support  --->
+			[*]Network core driver support
+			[*]   Wireless LAN  --->
+				<*>IEEE 802.11 for Host AP (Prism2/2.5/3 and WEP/TKIP/CCMP)
+	
+	//网口设置（评估板上用的ICPlus，以后会用National Semiconductor）
+	Device Drivers  --->
+	[*]Network device support  --->
+	    <*>  Dummy net driver support
+            [*]  Ethernet driver support  --->
+		<*>  Nuvoton NUC970 Ethernet MAC 0
+	    -*-  PHY Device support and infrastructure  --->
+		<*>  	Drivers for ICPlus PHYs
+	
+	//GPIO设置
+	Device Drivers  ---> 
+		-*- GPIO Support  --->
+		    [*]   /sys/class/gpio/... (sysfs interface) 
+		    <*>   NUC970 GPIO support
+		
+	//串口设置
+	Device Drivers  ---> 
+		Character devices  ---> 
+			Serial drivers  ---> 
+			[*]  NUC970 serial support
+			[*]    	NUC970 UART2 support
+					NUC970 UART2 pin selection (Tx:PF11, Rx:PF12, CTS:PF13, RTS:PF14)  --->
+			   
+	//SPI接口和SPI Flash设置,增加对W25Q128 Flash芯片支持，(借用ST公司M25P80的驱动支持)
+	Device Drivers  --->
+		[*] SPI support  ---> 
+		       <*>   Nuvoton NUC970 Series SPI Port 0 
+			          NUC970 SPI0 pin selection (Normal mode)  ---> 
+		       < >   Nuvoton NUC970 Series SPI Port 1
+			          NUC970 SPI1 pin selection (Port B – Normal mode)  --->
+	
+		<*> Memory Technology Device (MTD) support  --->
+			<*> Caching block device access to MTD devices
+			Self-contained MTD device drivers  --->
+				<*> Support most SPI Flash chips (AT26DF, M25P, W25X, ...)
+			
+			RAM/ROM/Flash chip drivers  --->
+				<*> Detect flash chips by Common Flash Interface (CFI) probe
+				<*> Support for ST (Advanced Architecture) flash chips
+	
+	
+	增加对SquashFS和JFFS2格式的文件系统的支持
+	File Systems -->
+		[*] Miscellaneous filesystems -->
+			<*>Journalling Flash File System v2 (JFFS2) support
+				(0)JFFS2 debugging verbosity (0 = quiet, 2 = noisy)
+				[*]JFFS2 write-buffering support
+				
+			<*> SquashFS 4.0 - Squashed file system support -->(Yes)
+				[*] 	Include support for ZLIB compressed file systems -->(Yes)
+				[*] 	Use 4K device block size? -->(Yes)
+	
+	//增加对3G+4G模块的支持
+	Device Drivers  --->			
+	     [*] USB support ---> 
+		     <*> USB Serial Converter support --->   
+			 [*] USB Serial Console device support   
+			 [*] USB Generic Serial Driver   
+			 <*> USB driver for GSM and CDMA modems
+		     <*>USB Modem (CDC ACM) support
+		
+	     [*]Network device support  --->
+			USB Network Adapters  --->
+			<*> Multi-purpose USB Networking Framework
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+			-*-   CDC Ethernet support (smart devices such as cable modems)
+			<*>   CDC NCM support
+			<*>   Host for RNDIS and ActiveSync devices
+			<*>   Simple USB Network Links (CDC Ethernet subset)
+			
+	支持PPP拨号
+	Device Drivers->
+              ->Network Device Support->
+                  <*> PPP (point-to-point protocol) support
+                  [*]   PPP multilink support
+                  <*> PPP support for async serial ports
+                  <*> PPP support for sync tty ports
+                  <*> SLIP (serial line) support
+                  [*]   CSLIP compressed headers
+	   
+	   
+	2)增加对3G4G模块的支持，驱动过滤
+	打开文件gedit ./drivers/usb/serial/option.c，增加USB枚举类型：
+	static const struct usb_device_id option_ids[] = {
+	{ USB_DEVICE(0x19d2, 0x0536) },
+	{ USB_DEVICE(0x19d2, 0x0199) },
+
+	打开文件gedit ./drivers/usb/serial/usb-serial.c，增加驱动过滤，防止被其他程序加载
+	在type = search_serial_device(interface);前面增加如下代码：
+	if ( (le16_to_cpu(dev->descriptor.idVendor) == 0x19d2) &&
+		( (le16_to_cpu(dev->descriptor.idProduct) == 0x0536) || 
+		  (le16_to_cpu(dev->descriptor.idProduct) == 0x0199) )
+		)
+	{
+		 if ((1 == interface->cur_altsetting->desc.bInterfaceNumber) ||
+		 ( 0 == interface->cur_altsetting->desc.bInterfaceNumber))
+		 {
+			mutex_unlock(&table_lock); 
+			return -ENODEV; 
+		 } 
+	}
+
+	内核配置好后，请备份.config文件。sudo cp .config .config.old
+	
+	
+    3)修改内核代码
+
+		1>调整分区，Flash空间分配：(jffs2),FLASH :W25Q128, 总大小16byte
+		
+		uboot：	0x00000~0x03FFFF(0x40000=256KB)//软件上烧录地址是E00000
+		env:	0x40000~0x04FFFF(0x10000=64KB)
+		kernel:	0x50000~0x5FFFFF(0x5B0000=5824KB)	
+		rootfs: 0x600000~0x0FFFFFF(0xA00000=10MB)
+
+		打开文件gedit ./arch/arm/mach-nuc970/dev.c，替换如下定义代码：
+		static struct mtd_partition nuc970_spi0_flash_partitions[] = {
+		{
+			.name = "uboot",
+			.size = 0x40000,
+			.offset = 0,
+		},
+		{
+			.name = "env",
+			.size = 0x10000,
+			.offset = 0x40000,
+		},
+		{
+			.name = "kernel",
+			.size = 0x5B0000,
+			.offset = 0x50000,
+		},
+		{
+			.name = "rootfs",
+			.size = 0xA00000,	
+			.offset = 0x600000,
+		},
+		
+		生成文件系统：
+		
+		mkfs.jffs2 -s 256 -e 0x10000 -p 0xA00000 -d ./rootfs -o ./rootfs.jffs2
+		
+		说明：
+		页大小256        256Byte
+		块大小0x10000    64k
+		jffs2分区总空间0x800000 即8M
+		当然生成的jffs2.img并没有一下子分配5M,还是实际大小0xc0000
+		
+		安装mkfs.jffs2工具
+		
+		sudo apt-get install mtd-utils
+		
+		W25Q128将16M的容量分为256个块，每个块的大小是64K个字节，每个块又分为16个扇区，每个扇区4K个字节，每个扇区16页，页大小256byte,共65536页
+		
+		对应的env参数
+		bootcmd=sf probe 0 18000000\; sf read 0x7fc0 0x50000 0x5B0000\; bootm 0x7fc0
+		bootargs=mem=64M console=ttyS0,115200n8 rdinit=/sbin/init rootfstype=jffs2 root=/dev/mtdblock3
+		
+		环境变量设置详解:
+		在uboot中bootcmd需要两条指令之间分号前加入‘\’.
+		bootcmd=sf probe 0 18000000\; //在使用sf read/write/erase/update之前,必须先执行sf probe这个命令,这里的表示将spi时钟设为18M
+		sf read 0x7fc0 0x50000 0x5B0000\; //使用spi将大小为0x5B0000,偏移为0x50000的内核镜像读入到DDR 内存 0x7fc0地址
+		bootm 0x7fc0 //使用bootm指令完成linux的开机
+
+	
+
+		
+	   给kernel添加flash型号
+		1)在gedit ./drivers/mtd/devices/m25p80.c中添加，注意：0xc84018
+		/* Winbond -- w25x "blocks" are 64K, "sectors" are 4KiB */
+		{ "gd25q128", INFO(0xc84018, 0, 64 * 1024, 256, 0 | M25P80_DUAL_READ | M25P80_QUAD_READ | M25P80_QUAD_WRITE) },
+		
+		2)在gedit ./arch/arm/mach-nuc970/dev.c修改
+		static struct flash_platform_data nuc970_spi0_flash_data = {
+			.name = "m25p80",
+			.parts =  nuc970_spi0_flash_partitions,
+			.nr_parts = ARRAY_SIZE(nuc970_spi0_flash_partitions),
+			.type = "gd25q128",
+		};
+	
+	4)开始编译：
+	make
+	
+	5)拷贝成bin（安米或原厂此方法一样）：
+	arm-linux-objcopy -O binary vmlinux vmlinux.bin
+
+	6)生成ubi格式镜像文件(mkimage工具在uboot/build/tool/，拷贝到/usr/bin下)：
+	mkimage -A arm -O linux -T kernel -a 0x7fc0 -e 0x8000 -d vmlinux.bin vmlinux.ub
+	
+	mkimage -A arm -O linux -T kernel -a 0x7fc0 -e 0x8000 -d ../../linux-3.10.x/vmlinux.bin vmlinux.ub
+	
+    mkimage -A arm -O linux -T kernel -a 0x7fc0 -e 0x8000 -d /home/user/share/linux-rootfs/linux-3.10.x/vmlinux.bin vmlinux.ub
+  
+  
+  
+  
+  
+  	内核编译步骤
+	
+	1、恢复到972默认配置：make nuc972_defconfig
+    2、打开内核配置界面：make menuconfig
+	
+	3、开始编译
+		make
+	
+	4、拷贝成bin（安米或原厂此方法一样）：
+	arm-linux-objcopy -O binary vmlinux vmlinux.bin
+
+    5、生成ubi格式镜像文件(mkimage工具在uboot/build/tool/，拷贝到/usr/bin下)：
+	mkimage -A arm -O linux -T kernel -a 0x7fc0 -e 0x8000 -d vmlinux.bin vmlinux.ub
+	
+	
+	
+	
+	httpd -h /mnt/firm/web
+  
+  
+  
+  
+  源代码安装：
+            1)  cd 到源代码解压后的目录；
+            2) ./configure [--prefix=newpath](自己指定安装路径)；
+            3) make ; make前确认使用哪种编译器编译
+            4) make install(这一步要有root权限)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+编译net-snmp 
+
+下载net-snmp-5.7.3.tar.gz
+
+配置	 
+./configure --host=arm-linux --target=arm-linux --build=i686-linux  --with-cc=arm-linux-gcc --with-ar=arm-linux-ar --prefix=/home/user/share/soft/net-snmp-5.7.3/ubuntu/output --disable-shared --with-endianness=little --disable-ipv6 --disable-manuals --disable-ucd-snmp-compatibility --enable-as-needed -enable-mini-agent --with-mib-modules="mibII ip-mib if-mib tcp-mib udp-mib Test examples/notification" --with-default-snmp-version="1" --with-sys-contact="695042890@qq.com" --with-sys-location="JN-SHANDONG-China" --with-logfile="/var/log/snmpd.log" --with-persistent-directory="/var/net-snmp"
+  
+ubuntu下配置
+./configure --disable-shared --with-endianness=little --disable-ipv6 --disable-manuals --enable-mfd-rewrites --enable-as-needed -enable-mini-agent --with-mib-modules="mibII ip-mib if-mib tcp-mib udp-mib Test examples/notification"
+  
+make /make install
+  
+瘦身   
+arm-linux-gnueabihf-strip snmpd
+   
+
+添加自定义MIB库   
+env MIBS="/home/user/share/soft/net-snmp-5.7.3/mibs/TEST-MIB.txt" mib2c Test
+ 
+  
+  
+
+
+ 
+
+
+	
+snmpwalk -v 1 192.168.1.105 -c public system
+	
+snmpget -v 1 127.0.0.1 -c public  1.3.6.1.4.1.745352.1.1
+	
+snmpwalk -v 1 192.168.1.105 -c public system
+	
+	
+	
+启动snmptrapd
+
+sudo snmptrapd -c /etc/snmp/snmptrip.conf –f –Le -d
+
+启动snmpd
+
+sudo snmpd -c /etc/snmp/snmpd.conf -f -Le -d
+	
+	
+	
+gcc是一个非常实用的Linux编译器，在实际使用中会经常用到。
+1. gcc -E source_file.c
+-E，只执行到预编译。直接输出预编译结果。
+
+2. gcc -S source_file.c 
+-S，只执行到源代码到汇编代码的转换，输出汇编代码。
+
+3. gcc -c source_file.c
+-c，只执行到编译，输出目标文件。
+
+4. gcc (-E/S/c/) source_file.c -o output_filename
+-o, 指定输出文件名，可以配合以上三种标签使用。
+-o 参数可以被省略。这种情况下编译器将使用以下默认名称输出：
+-E：预编译结果将被输出到标准输出端口（通常是显示器）
+-S：生成名为source_file.s的汇编代码
+-c：生成名为source_file.o的目标文件。
+无标签情况：生成名为a.out的可执行文件。
+
+5. gcc -g source_file.c 
+-g，生成供调试用的可执行文件，可以在gdb中运行。由于文件中包含了调试信息因此运行效率很低，且文件也大不少。
+这里可以用strip命令重新将文件中debug信息删除。这是会发现生成的文件甚至比正常编译的输出更小了，这是因为strip把原先正常编译中的一些额外信息（如函数名之类）也删除了。用法为 strip a.out
+
+6. gcc -s source_file.c
+-s, 直接生成与运用strip同样效果的可执行文件（删除了所有符号信息）。
+
+7. gcc -O source_file.c
+-O（大写的字母O），编译器对代码进行自动优化编译，输出效率更高的可执行文件。
+-O 后面还可以跟上数字指定优化级别，如：
+gcc -O2 source_file.c
+数字越大，越加优化。但是通常情况下，自动的东西都不是太聪明，太大的优化级别可能会使生成的文件产生一系列的bug。一般可选择2；3会有一定风险。
+
+8. gcc -Wall source_file.c
+-W，在编译中开启一些额外的警告（warning）信息。-Wall，将所有的警告信息全开。
+
+9. gcc source_file.c -L/path/to/lib -lxxx -I/path/to/include
+-l, 指定所使用到的函数库，本例中链接器会尝试链接名为libxxx.a的函数库。
+-L，指定函数库所在的文件夹，本例中链接器会尝试搜索/path/to/lib文件夹。
+-I, 指定头文件所在的文件夹，本例中预编译器会尝试搜索/path/to/include文件夹。
+	
+	
